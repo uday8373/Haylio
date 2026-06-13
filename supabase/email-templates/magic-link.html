@@ -1,0 +1,143 @@
+<!--
+  Haylio — Supabase email template (Magic Link / Email OTP)
+
+  Where to paste:
+    Supabase Dashboard → Authentication → Email Templates → "Magic Link"
+    (this template is what signInWithOtp uses). You can paste the same markup
+    into "Confirm signup" too.
+
+  Requirements for the 6-digit code to appear:
+    Authentication → Providers → Email → enable "Email OTP", and keep the
+    {{ .Token }} variable below. {{ .ConfirmationURL }} powers the optional
+    one-tap button.
+
+  Supabase template variables used: {{ .Token }}, {{ .ConfirmationURL }}.
+-->
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light only" />
+    <meta name="supported-color-schemes" content="light only" />
+    <title>Your Haylio verification code</title>
+  </head>
+  <body style="margin:0; padding:0; background-color:#a9b0bb; -webkit-text-size-adjust:100%; -ms-text-size-adjust:100%;">
+    <!-- Preheader (hidden) -->
+    <div style="display:none; max-height:0; overflow:hidden; opacity:0; color:transparent; height:0; width:0;">
+      Your Haylio verification code is {{ .Token }}. It expires shortly.
+    </div>
+
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#a9b0bb;">
+      <tr>
+        <td align="center" style="padding:40px 16px;">
+          <!-- Card -->
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:480px; width:100%; background-color:#ffffff; border-radius:28px; box-shadow:0 12px 40px rgba(0,0,0,0.18); overflow:hidden;">
+
+            <!-- Header / brand -->
+            <tr>
+              <td style="padding:36px 40px 8px 40px;">
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td style="vertical-align:middle;">
+                      <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                        <tr>
+                          <td style="width:38px; height:38px; background-color:#e8552f; border-radius:50%; text-align:center; vertical-align:middle; color:#ffffff; font-family:'Segoe UI',Helvetica,Arial,sans-serif; font-size:18px; font-weight:800; line-height:38px;">
+                            ⚡
+                          </td>
+                          <td style="padding-left:12px; vertical-align:middle; font-family:'Segoe UI',Helvetica,Arial,sans-serif; font-size:14px; font-weight:800; letter-spacing:2px; color:#1b1a14; text-transform:uppercase;">
+                            Haylio
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <!-- Title + copy -->
+            <tr>
+              <td style="padding:20px 40px 0 40px; font-family:'Segoe UI',Helvetica,Arial,sans-serif;">
+                <h1 style="margin:0; font-size:26px; line-height:1.25; font-weight:700; letter-spacing:-0.3px; color:#232219;">
+                  Verify your email
+                </h1>
+                <p style="margin:12px 0 0 0; font-size:15px; line-height:1.6; color:#8a897f;">
+                  Use the code below to finish signing in to Haylio. For your security, it expires shortly — don't share it with anyone.
+                </p>
+              </td>
+            </tr>
+
+            <!-- Code block -->
+            <tr>
+              <td style="padding:28px 40px 8px 40px;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f6f6f3; border:1px solid #ebebe8; border-radius:20px;">
+                  <tr>
+                    <td align="center" style="padding:26px 16px;">
+                      <div style="font-family:'Segoe UI',Helvetica,Arial,sans-serif; font-size:11px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; color:#a6a59c;">
+                        Your verification code
+                      </div>
+                      <div style="margin-top:12px; font-family:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace; font-size:38px; font-weight:700; letter-spacing:10px; color:#232219; padding-left:10px;">
+                        {{ .Token }}
+                      </div>
+                      <div style="margin:16px auto 0 auto; width:48px; height:3px; background-color:#e8552f; border-radius:3px;"></div>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <!-- Optional one-tap button -->
+            <tr>
+              <td align="center" style="padding:16px 40px 4px 40px; font-family:'Segoe UI',Helvetica,Arial,sans-serif;">
+                <p style="margin:0 0 14px 0; font-size:13px; line-height:1.5; color:#a6a59c;">
+                  Or just tap the button to sign in instantly:
+                </p>
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td align="center" style="border-radius:9999px; background-color:#e8552f;">
+                      <a href="{{ .ConfirmationURL }}"
+                         style="display:inline-block; padding:13px 30px; font-family:'Segoe UI',Helvetica,Arial,sans-serif; font-size:14px; font-weight:700; color:#ffffff; text-decoration:none; border-radius:9999px;">
+                        Sign in to Haylio
+                      </a>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <!-- Divider -->
+            <tr>
+              <td style="padding:28px 40px 0 40px;">
+                <div style="height:1px; background-color:#f0f0ec; line-height:1px; font-size:0;">&nbsp;</div>
+              </td>
+            </tr>
+
+            <!-- Footer -->
+            <tr>
+              <td style="padding:20px 40px 36px 40px; font-family:'Segoe UI',Helvetica,Arial,sans-serif;">
+                <p style="margin:0; font-size:12px; line-height:1.6; color:#a6a59c;">
+                  Didn't request this? You can safely ignore this email — no account changes were made without this code.
+                </p>
+                <p style="margin:14px 0 0 0; font-size:12px; line-height:1.6; color:#c2c1b8;">
+                  Haylio · Your business, one private link.
+                </p>
+              </td>
+            </tr>
+
+          </table>
+
+          <!-- Sub-card caption -->
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:480px; width:100%;">
+            <tr>
+              <td align="center" style="padding:18px 16px 0 16px; font-family:'Segoe UI',Helvetica,Arial,sans-serif; font-size:11px; color:#7e858f;">
+                This is an automated message from Haylio. Please don't reply.
+              </td>
+            </tr>
+          </table>
+
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

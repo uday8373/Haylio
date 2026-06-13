@@ -1,10 +1,16 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { SmsVerificationStatus, VirtualNumber } from "@/lib/types";
-import { PhoneIcon, SparklesIcon } from "@/components/icons";
+import { CheckIcon, PhoneIcon, SearchIcon, SparklesIcon } from "@/components/icons";
 import SmsStatusBadges from "@/components/dashboard/SmsStatusBadges";
+
+interface AvailableNumber {
+  phoneNumber: string;
+  friendlyName: string;
+  region?: string;
+}
 
 export function NumberCard({
   vn,
@@ -12,12 +18,14 @@ export function NumberCard({
   minutesUsed = 0,
   minutesLimit = 30,
   verificationStatus = "not_submitted",
+  paywall = false,
 }: {
   vn: VirtualNumber | null;
   live: boolean;
   minutesUsed?: number;
   minutesLimit?: number;
   verificationStatus?: SmsVerificationStatus;
+  paywall?: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -33,13 +41,54 @@ export function NumberCard({
   const [dndStart, setDndStart] = useState(vn?.dndStart ?? "21:00");
   const [dndEnd, setDndEnd] = useState(vn?.dndEnd ?? "08:00");
 
-  async function requestNumber() {
+  // Number picker (shown when the business has no number yet)
+  const [available, setAvailable] = useState<AvailableNumber[]>([]);
+  const [areaCode, setAreaCode] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [selected, setSelected] = useState("");
+
+  async function searchNumbers(e?: React.FormEvent) {
+    e?.preventDefault();
+    setSearching(true);
+    setError("");
+    const qs = areaCode ? `?areaCode=${encodeURIComponent(areaCode)}` : "";
+    const res = await fetch(`/api/numbers/available${qs}`);
+    const data = await res.json().catch(() => ({}));
+    setSearching(false);
+    if (!res.ok) {
+      setError(data.error ?? "Couldn't load numbers.");
+      return;
+    }
+    setAvailable(data.numbers ?? []);
+    setSelected(data.numbers?.[0]?.phoneNumber ?? "");
+  }
+
+  // Auto-load options when the picker first appears (skip behind the paywall).
+  useEffect(() => {
+    if (!vn && !paywall) searchNumbers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function buyNumber() {
+    if (!selected) return;
     setBusy(true);
     setError("");
-    const res = await fetch("/api/numbers", { method: "POST" });
+    const res = await fetch("/api/numbers", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ phoneNumber: selected }),
+    });
     setBusy(false);
-    if (res.ok) router.refresh();
-    else setError((await res.json()).error ?? "Failed — try again.");
+    if (res.ok) {
+      router.refresh();
+      return;
+    }
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 402 || data.paywall) {
+      router.push("/dashboard/billing");
+      return;
+    }
+    setError(data.error ?? "Failed — try again.");
   }
 
   async function save() {
@@ -71,22 +120,89 @@ export function NumberCard({
     router.refresh();
   }
 
-  if (!vn) {
+  if (!vn && paywall) {
     return (
       <div className="card p-5 md:p-7 text-center">
         <span className="mx-auto w-14 h-14 rounded-2xl bg-[#fdf0eb] border border-[#f3d9cf] flex items-center justify-center text-[#e8552f]">
           <PhoneIcon size={22} />
         </span>
-        <h2 className="mt-4 text-lg font-semibold">Get your toll-free number</h2>
+        <h2 className="mt-4 text-lg font-semibold">Activate your account to get a number</h2>
         <p className="mt-2 text-xs text-[#8a897f] max-w-xs mx-auto leading-relaxed">
-          Put it on Google instead of your mobile. Callers hear your greeting and instantly
-          receive a tracked link to your contact page — your real number stays private.
+          Your toll-free number, call intercept, AI receptionist and inbox unlock with a
+          subscription. Set up billing to choose and provision your number.
         </p>
-        <button onClick={requestNumber} className="btn-primary mt-5" disabled={busy}>
-          {busy ? "Purchasing your number…" : "Purchase my toll-free number"}
+        <a href="/dashboard/billing" className="btn-primary mt-5 inline-flex">Set up billing →</a>
+      </div>
+    );
+  }
+
+  if (!vn) {
+    return (
+      <div className="card p-5 md:p-7">
+        <div className="text-center">
+          <span className="mx-auto w-14 h-14 rounded-2xl bg-[#fdf0eb] border border-[#f3d9cf] flex items-center justify-center text-[#e8552f]">
+            <PhoneIcon size={22} />
+          </span>
+          <h2 className="mt-4 text-lg font-semibold">Choose your toll-free number</h2>
+          <p className="mt-2 text-xs text-[#8a897f] max-w-xs mx-auto leading-relaxed">
+            Pick a number to put on Google instead of your mobile. It gets its own Twilio
+            subaccount — callers hear your greeting and get a tracked link; your real number stays private.
+          </p>
+        </div>
+
+        {/* Search by area code */}
+        <form onSubmit={searchNumbers} className="mt-5 flex items-center gap-2">
+          <input
+            className="input"
+            inputMode="numeric"
+            maxLength={3}
+            placeholder="Prefix / area code (e.g. 833) — optional"
+            value={areaCode}
+            onChange={(e) => setAreaCode(e.target.value.replace(/\D/g, "").slice(0, 3))}
+          />
+          <button type="submit" className="btn-secondary shrink-0 !px-4" disabled={searching}>
+            <SearchIcon size={15} /> {searching ? "…" : "Search"}
+          </button>
+        </form>
+
+        {/* Options */}
+        <div className="mt-4 space-y-2 max-h-72 overflow-y-auto">
+          {searching && available.length === 0 && (
+            <p className="text-sm text-[#8a897f] py-4 text-center">Finding available numbers…</p>
+          )}
+          {!searching && available.length === 0 && (
+            <p className="text-sm text-[#8a897f] py-4 text-center">No numbers found — try a different area code.</p>
+          )}
+          {available.map((n) => {
+            const active = selected === n.phoneNumber;
+            return (
+              <button
+                key={n.phoneNumber}
+                onClick={() => setSelected(n.phoneNumber)}
+                className={`w-full flex items-center gap-3 rounded-2xl border p-3.5 text-left transition ${
+                  active ? "border-[#21201a] bg-[#f6f6f3]" : "border-[#ebebe8] bg-[#fafaf8] hover:border-[#cfcfca]"
+                }`}
+              >
+                <span className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 ${active ? "border-[#e8552f] bg-[#e8552f] text-white" : "border-[#cfcfca]"}`}>
+                  {active && <CheckIcon size={12} />}
+                </span>
+                <span className="min-w-0">
+                  <span className="block font-mono font-semibold text-sm text-[#232219]">{n.friendlyName}</span>
+                  {n.region && <span className="block text-[11px] text-[#a6a59c] mt-0.5">{n.region}</span>}
+                </span>
+                <span className="ml-auto pill-soft shrink-0">Toll-free</span>
+              </button>
+            );
+          })}
+        </div>
+
+        <button onClick={buyNumber} className="btn-primary w-full mt-5" disabled={busy || !selected}>
+          {busy ? "Setting up your number…" : "Get this number"}
         </button>
-        <p className="mt-3 text-[11px] text-[#a6a59c]">~$2.15/mo · billed to the connected Twilio account · ready in seconds</p>
-        {error && <p className="mt-3 text-sm text-[#e8552f]">{error}</p>}
+        <p className="mt-3 text-[11px] text-[#a6a59c] text-center">
+          ~$2.15/mo · billed to the connected Twilio account · its own subaccount · ready in seconds
+        </p>
+        {error && <p className="mt-3 text-sm text-[#e8552f] text-center">{error}</p>}
       </div>
     );
   }

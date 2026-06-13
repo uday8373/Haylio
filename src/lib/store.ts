@@ -29,6 +29,9 @@ type BizRow = {
   id: string; handle: string; name: string; email: string; password_hash: string;
   category: string; description: string; hours: string; location: string;
   website: string; phone: string; google_place_id: string | null; verified: boolean;
+  twilio_subaccount_sid: string | null;
+  plan_status: Business["planStatus"] | null;
+  plan_subscription_id: string | null; plan_activated_at: number | null;
   logo_url: string; cover_image_url: string; background_image_url: string;
   ai_instructions: string;
   faqs: Business["faqs"]; widget: Business["widget"]; created_at: number;
@@ -46,6 +49,10 @@ function rowToBiz(r: BizRow): Business {
     category: r.category, description: r.description, hours: r.hours, location: r.location,
     website: r.website, phone: r.phone, googlePlaceId: r.google_place_id ?? undefined,
     verified: r.verified,
+    twilioSubaccountSid: r.twilio_subaccount_sid ?? undefined,
+    planStatus: r.plan_status ?? "inactive",
+    planSubscriptionId: r.plan_subscription_id ?? undefined,
+    planActivatedAt: r.plan_activated_at != null ? Number(r.plan_activated_at) : undefined,
     logoUrl: r.logo_url ?? "", coverImageUrl: r.cover_image_url ?? "",
     backgroundImageUrl: r.background_image_url ?? "", aiInstructions: r.ai_instructions ?? "",
     faqs: r.faqs ?? [], widget: r.widget, createdAt: Number(r.created_at),
@@ -58,6 +65,9 @@ function bizToRow(b: Business): BizRow {
     category: b.category, description: b.description, hours: b.hours, location: b.location,
     website: b.website, phone: b.phone, google_place_id: b.googlePlaceId ?? null,
     verified: b.verified,
+    twilio_subaccount_sid: b.twilioSubaccountSid ?? null,
+    plan_status: b.planStatus, plan_subscription_id: b.planSubscriptionId ?? null,
+    plan_activated_at: b.planActivatedAt ?? null,
     logo_url: b.logoUrl, cover_image_url: b.coverImageUrl,
     background_image_url: b.backgroundImageUrl, ai_instructions: b.aiInstructions,
     faqs: b.faqs, widget: b.widget, created_at: b.createdAt,
@@ -121,6 +131,7 @@ function seed(): MemStore {
     website: "https://bluebirdcafe.example.com",
     phone: "",
     verified: true,
+    planStatus: "active",
     logoUrl: "https://picsum.photos/seed/bluebird-logo/200/200",
     coverImageUrl: "https://picsum.photos/seed/bluebird-cover/800/300",
     backgroundImageUrl: "",
@@ -175,7 +186,8 @@ function mem(): MemStore {
 export interface NewBusinessInput {
   name: string;
   email: string;
-  password: string;
+  /** Optional — accounts are OTP-only; a random secret is stored when omitted. */
+  password?: string;
   handle: string;
   category?: string;
   description?: string;
@@ -198,7 +210,7 @@ export async function createBusiness(input: NewBusinessInput): Promise<Business 
     handle,
     name: input.name,
     email: input.email,
-    passwordHash: hashPassword(input.password),
+    passwordHash: hashPassword(input.password ?? crypto.randomBytes(24).toString("hex")),
     category: input.category ?? "",
     description: input.description ?? "",
     hours: input.hours ?? "",
@@ -207,6 +219,7 @@ export async function createBusiness(input: NewBusinessInput): Promise<Business 
     phone: input.phone ?? "",
     googlePlaceId: input.googlePlaceId,
     verified: input.verified ?? false,
+    planStatus: "inactive",
     logoUrl: "",
     coverImageUrl: "",
     backgroundImageUrl: "",
@@ -270,6 +283,18 @@ export async function updateBusiness(id: string, patch: Partial<Business>): Prom
     mem().businesses.set(id, updated);
   }
   return updated;
+}
+
+/** Activate or deactivate a business's paid plan. */
+export async function setBusinessPlan(
+  id: string,
+  plan: { planStatus: Business["planStatus"]; planSubscriptionId?: string; planActivatedAt?: number }
+): Promise<Business | undefined> {
+  return updateBusiness(id, {
+    planStatus: plan.planStatus,
+    planSubscriptionId: plan.planSubscriptionId,
+    planActivatedAt: plan.planActivatedAt,
+  });
 }
 
 export function toPublic(b: Business): PublicBusiness {
@@ -410,6 +435,7 @@ export async function markRead(conversationId: string): Promise<void> {
 
 type VnRow = {
   id: string; business_id: string; phone_number: string; twilio_sid: string | null;
+  subaccount_sid: string | null;
   provider: VirtualNumber["provider"]; status: VirtualNumber["status"];
   greeting: string; sms_template: string;
   forwarding_enabled: boolean | null; forward_to_number: string | null;
@@ -422,7 +448,8 @@ type VnRow = {
 function rowToVn(r: VnRow): VirtualNumber {
   return {
     id: r.id, businessId: r.business_id, phoneNumber: r.phone_number,
-    twilioSid: r.twilio_sid ?? undefined, provider: r.provider, status: r.status,
+    twilioSid: r.twilio_sid ?? undefined, subaccountSid: r.subaccount_sid ?? undefined,
+    provider: r.provider, status: r.status,
     greeting: r.greeting, smsTemplate: r.sms_template,
     forwardingEnabled: r.forwarding_enabled ?? false,
     forwardToNumber: r.forward_to_number ?? "",
@@ -471,7 +498,8 @@ export async function createVirtualNumber(vn: Omit<VirtualNumber, "id" | "create
   if (supabaseEnabled) {
     await sbInsert("virtual_numbers", {
       id: full.id, business_id: full.businessId, phone_number: full.phoneNumber,
-      twilio_sid: full.twilioSid ?? null, provider: full.provider, status: full.status,
+      twilio_sid: full.twilioSid ?? null, subaccount_sid: full.subaccountSid ?? null,
+      provider: full.provider, status: full.status,
       greeting: full.greeting, sms_template: full.smsTemplate,
       forwarding_enabled: false, forward_to_number: "",
       forward_start: full.forwardStart, forward_end: full.forwardEnd,
@@ -490,7 +518,7 @@ export async function updateVirtualNumber(
   patch: Partial<
     Pick<
       VirtualNumber,
-      | "greeting" | "smsTemplate" | "status" | "twilioSid" | "phoneNumber" | "provider"
+      | "greeting" | "smsTemplate" | "status" | "twilioSid" | "subaccountSid" | "phoneNumber" | "provider"
       | "forwardingEnabled" | "forwardToNumber" | "forwardStart" | "forwardEnd"
       | "dndEnabled" | "dndStart" | "dndEnd" | "tzOffsetMinutes"
     >
@@ -502,6 +530,7 @@ export async function updateVirtualNumber(
     if (patch.smsTemplate !== undefined) row.sms_template = patch.smsTemplate;
     if (patch.status !== undefined) row.status = patch.status;
     if (patch.twilioSid !== undefined) row.twilio_sid = patch.twilioSid;
+    if (patch.subaccountSid !== undefined) row.subaccount_sid = patch.subaccountSid;
     if (patch.phoneNumber !== undefined) row.phone_number = patch.phoneNumber;
     if (patch.provider !== undefined) row.provider = patch.provider;
     if (patch.forwardingEnabled !== undefined) row.forwarding_enabled = patch.forwardingEnabled;

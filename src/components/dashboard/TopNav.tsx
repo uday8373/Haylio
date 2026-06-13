@@ -11,6 +11,7 @@ const nav = [
   { href: "/dashboard/profile", label: "Profile" },
   { href: "/dashboard/widget", label: "Widget" },
   { href: "/dashboard/share", label: "Share" },
+  { href: "/dashboard/billing", label: "Billing" },
 ];
 
 export default function TopNav({

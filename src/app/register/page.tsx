@@ -10,7 +10,7 @@ function slugify(s: string) {
   return s.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
 }
 
-type Mode = "search" | "details";
+type Mode = "search" | "details" | "verify";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -30,9 +30,13 @@ export default function RegisterPage() {
   const [handle, setHandle] = useState("");
   const [handleTouched, setHandleTouched] = useState(false);
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+
+  // Email OTP state
+  const [otp, setOtp] = useState("");
+  const [devCode, setDevCode] = useState<string | null>(null);
+  const [resent, setResent] = useState(false);
 
   async function search(e?: React.FormEvent) {
     e?.preventDefault();
@@ -73,7 +77,46 @@ export default function RegisterPage() {
     setMode("details");
   }
 
-  async function submit(e: React.FormEvent) {
+  // Step 2 → 3: send the verification code to the email.
+  async function sendCode(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    const res = await fetch("/api/auth/otp", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email, intent: "register" }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (!res.ok) {
+      setError(data.error ?? "Couldn't send the code.");
+      return;
+    }
+    setDevCode(data.devCode ?? null);
+    setOtp("");
+    setMode("verify");
+  }
+
+  async function resendCode() {
+    setError("");
+    const res = await fetch("/api/auth/otp", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email, intent: "register" }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setError(data.error ?? "Couldn't resend the code.");
+      return;
+    }
+    setDevCode(data.devCode ?? null);
+    setResent(true);
+    setTimeout(() => setResent(false), 2500);
+  }
+
+  // Step 3: verify the code, then create the account.
+  async function verifyAndRegister(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError("");
@@ -83,7 +126,7 @@ export default function RegisterPage() {
       body: JSON.stringify({
         name: place ? undefined : name,
         email,
-        password,
+        otp,
         handle,
         category,
         place: place ?? undefined,
@@ -108,7 +151,8 @@ export default function RegisterPage() {
           {/* Step indicator */}
           <div className="flex items-center gap-1.5 text-[10px] font-semibold">
             <span className="pill-dark !px-3 !py-1.5">1 · Find</span>
-            <span className={mode === "details" ? "pill-dark !px-3 !py-1.5" : "pill-soft !px-3 !py-1.5"}>2 · Details</span>
+            <span className={mode === "details" || mode === "verify" ? "pill-dark !px-3 !py-1.5" : "pill-soft !px-3 !py-1.5"}>2 · Details</span>
+            <span className={mode === "verify" ? "pill-dark !px-3 !py-1.5" : "pill-soft !px-3 !py-1.5"}>3 · Verify</span>
           </div>
         </div>
 
@@ -207,7 +251,7 @@ export default function RegisterPage() {
               <p className="text-sm text-[#8a897f] mt-2">Not on Google yet — no problem. Enter your details manually.</p>
             )}
 
-            <form onSubmit={submit} className="mt-6 space-y-4">
+            <form onSubmit={sendCode} className="mt-6 space-y-4">
               {!place && (
                 <>
                   <div>
@@ -248,16 +292,64 @@ export default function RegisterPage() {
               <div>
                 <label className="label">Email</label>
                 <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-              </div>
-              <div>
-                <label className="label">Password</label>
-                <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={8} required />
+                <p className="mt-1.5 text-[11px] text-[#a6a59c]">We'll email you a 6-digit code to verify it's you.</p>
               </div>
               {error && <p className="text-sm text-[#e8552f] animate-msg-in">{error}</p>}
               <button className="btn-primary w-full !rounded-full" disabled={busy}>
-                {busy ? "Creating…" : place ? "Create my verified link" : "Create my link"}
+                {busy ? "Sending code…" : "Send verification code"}
               </button>
             </form>
+          </>
+        )}
+
+        {mode === "verify" && (
+          <>
+            <button
+              onClick={() => { setMode("details"); setError(""); }}
+              className="mt-6 text-sm text-[#8a897f] hover:text-[#1b1a14] transition"
+            >
+              ‹ Back
+            </button>
+            <h1 className="mt-2 text-3xl font-semibold tracking-tight">Verify your email</h1>
+            <p className="text-sm text-[#8a897f] mt-2">
+              Enter the 6-digit code we sent to <span className="font-semibold text-[#1b1a14]">{email}</span>.
+            </p>
+
+            {devCode && (
+              <div className="mt-4 rounded-2xl border border-[#f3d9cf] bg-[#fdf0eb] p-3 text-[13px] text-[#9a4a2e]">
+                Dev mode (no email provider configured): your code is{" "}
+                <span className="font-mono font-bold tracking-widest">{devCode}</span>.
+              </div>
+            )}
+
+            <form onSubmit={verifyAndRegister} className="mt-6 space-y-4">
+              <div>
+                <label className="label">Verification code</label>
+                <input
+                  className="input text-center !text-xl !tracking-[0.5em] font-mono"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={6}
+                  placeholder="••••••"
+                  value={otp}
+                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  autoFocus
+                  required
+                />
+              </div>
+              {error && <p className="text-sm text-[#e8552f] animate-msg-in">{error}</p>}
+              <button className="btn-primary w-full !rounded-full" disabled={busy || otp.length < 6}>
+                {busy ? "Verifying…" : place ? "Verify & create my verified link" : "Verify & create my link"}
+              </button>
+            </form>
+
+            <p className="mt-5 text-sm text-[#8a897f] text-center">
+              Didn't get it?{" "}
+              <button onClick={resendCode} className="text-[#1b1a14] font-semibold underline underline-offset-4">
+                Resend code
+              </button>
+              {resent && <span className="ml-2 text-[#3e7d3a] font-semibold">Sent ✓</span>}
+            </p>
           </>
         )}
       </div>

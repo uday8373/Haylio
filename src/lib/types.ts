@@ -31,6 +31,13 @@ export interface Business {
   googlePlaceId?: string;
   /** true when the business identity was picked from Google Business listings */
   verified: boolean;
+  /** Twilio subaccount that owns this business's number(s). One per business. */
+  twilioSubaccountSid?: string;
+  /** Paywall: "active" once a Cashfree subscription is authorized. */
+  planStatus: "inactive" | "active";
+  /** Cashfree subscription id backing the active plan. */
+  planSubscriptionId?: string;
+  planActivatedAt?: number;
   /** Brand images — external URLs (no upload in prototype) */
   logoUrl: string;
   coverImageUrl: string;
@@ -88,6 +95,8 @@ export interface VirtualNumber {
   businessId: string;
   phoneNumber: string;
   twilioSid?: string;
+  /** Twilio subaccount this number was purchased under. */
+  subaccountSid?: string;
   provider: "simulator" | "twilio";
   status: "simulated" | "pending_verification" | "active";
   greeting: string;

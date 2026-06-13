@@ -6,6 +6,7 @@ import { timeAgo } from "@/lib/ui";
 import { CheckIcon, ChevronRightIcon, MessageIcon, PhoneIcon, ShieldCheckIcon, TrendingUpIcon } from "@/components/icons";
 import { NumberCard, SimulateCall } from "@/components/dashboard/CallsClient";
 import { FORWARD_MINUTES_LIMIT, forwardMinutesUsed } from "@/lib/engagement";
+import { cashfreeEnabled } from "@/lib/cashfree";
 import type { SmsStatus, SmsVerificationStatus } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -27,6 +28,7 @@ export default async function CallsPage() {
   const minutesUsed = vn ? await forwardMinutesUsed(biz.id) : 0;
   const verification = await getSmsVerification(biz.id);
   const verificationStatus: SmsVerificationStatus = verification?.status ?? "not_submitted";
+  const paywall = cashfreeEnabled && biz.planStatus !== "active";
 
   const calls = engagements.length;
   const delivered = engagements.filter((e) => e.smsStatus === "delivered" || e.smsStatus === "sent").length;
@@ -50,7 +52,7 @@ export default async function CallsPage() {
       </p>
 
       <div className="mt-7 grid lg:grid-cols-2 gap-5 items-start">
-        <NumberCard vn={vn ?? null} live={twilioEnabled} minutesUsed={minutesUsed} minutesLimit={FORWARD_MINUTES_LIMIT} verificationStatus={verificationStatus} />
+        <NumberCard vn={vn ?? null} live={twilioEnabled} minutesUsed={minutesUsed} minutesLimit={FORWARD_MINUTES_LIMIT} verificationStatus={verificationStatus} paywall={paywall} />
         <div className="space-y-5">
           <SimulateCall hasNumber={Boolean(vn)} />
 

@@ -28,9 +28,19 @@ export function publicWebhookBase(): string | null {
 export interface PurchasedNumber {
   phoneNumber: string;
   sid?: string;
+  /** The Twilio subaccount the number was bought under. */
+  subaccountSid?: string;
   /** active immediately (voice) but SMS pends toll-free verification on Twilio */
   status: "simulated" | "pending_verification";
   provider: "simulator" | "twilio";
+}
+
+/** A toll-free number offered for purchase. */
+export interface AvailableNumber {
+  phoneNumber: string;
+  friendlyName: string;
+  region?: string;
+  isoCountry?: string;
 }
 
 export interface SmsResult {
@@ -41,21 +51,46 @@ export interface SmsResult {
 
 interface TelephonyProvider {
   name: "twilio" | "simulator";
-  /** Search + purchase a toll-free number, configured with our webhooks. */
-  provisionTollFree(): Promise<PurchasedNumber>;
-  sendSms(opts: { from: string; to: string; body: string }): Promise<SmsResult>;
+  /** Send an SMS, optionally from a specific subaccount. */
+  sendSms(opts: { from: string; to: string; body: string; accountSid?: string }): Promise<SmsResult>;
 }
 
 // ------------------------------------------------------------- Twilio REST
 
 const TW = "https://api.twilio.com/2010-04-01";
 
-async function twilioFetch(path: string, init: RequestInit = {}): Promise<Record<string, unknown>> {
-  const res = await fetch(`${TW}/Accounts/${SID}${path}`, {
+function twilioAuthHeader(): string {
+  // Parent credentials can act on any of its subaccounts.
+  return "Basic " + Buffer.from(`${SID}:${TOKEN}`).toString("base64");
+}
+
+/** REST call scoped to an account (defaults to the main account). */
+async function twilioFetch(
+  path: string,
+  init: RequestInit = {},
+  accountSid: string = SID!
+): Promise<Record<string, unknown>> {
+  const res = await fetch(`${TW}/Accounts/${accountSid}${path}`, {
     ...init,
     cache: "no-store",
     headers: {
-      Authorization: "Basic " + Buffer.from(`${SID}:${TOKEN}`).toString("base64"),
+      Authorization: twilioAuthHeader(),
+      "content-type": "application/x-www-form-urlencoded",
+      ...(init.headers ?? {}),
+    },
+  });
+  const data = (await res.json()) as Record<string, unknown>;
+  if (!res.ok) throw new Error(`Twilio ${res.status}: ${JSON.stringify(data).slice(0, 300)}`);
+  return data;
+}
+
+/** REST call against the API root (e.g. creating a subaccount). */
+async function twilioRootFetch(path: string, init: RequestInit = {}): Promise<Record<string, unknown>> {
+  const res = await fetch(`${TW}${path}`, {
+    ...init,
+    cache: "no-store",
+    headers: {
+      Authorization: twilioAuthHeader(),
       "content-type": "application/x-www-form-urlencoded",
       ...(init.headers ?? {}),
     },
@@ -67,38 +102,94 @@ async function twilioFetch(path: string, init: RequestInit = {}): Promise<Record
 
 const twilioProvider: TelephonyProvider = {
   name: "twilio",
-  async provisionTollFree() {
-    const search = await twilioFetch(
-      "/AvailablePhoneNumbers/US/TollFree.json?SmsEnabled=true&VoiceEnabled=true&PageSize=1"
-    );
-    const candidates = search.available_phone_numbers as { phone_number: string }[];
-    if (!candidates?.length) throw new Error("No toll-free numbers available right now.");
-
-    const body = new URLSearchParams({ PhoneNumber: candidates[0].phone_number });
-    // Twilio rejects localhost webhook URLs — attach them only when public.
-    const wb = publicWebhookBase();
-    if (wb) {
-      body.set("VoiceUrl", `${wb}/api/twilio/voice`);
-      body.set("VoiceMethod", "POST");
-      body.set("SmsUrl", `${wb}/api/twilio/inbound-sms`);
-      body.set("SmsMethod", "POST");
-    }
-    const bought = await twilioFetch("/IncomingPhoneNumbers.json", { method: "POST", body });
-    return {
-      phoneNumber: bought.phone_number as string,
-      sid: bought.sid as string,
-      status: "pending_verification" as const,
-      provider: "twilio" as const,
-    };
-  },
-  async sendSms({ from, to, body }) {
+  async sendSms({ from, to, body, accountSid }) {
     const params = new URLSearchParams({ From: from, To: to, Body: body });
     const wb = publicWebhookBase();
     if (wb) params.set("StatusCallback", `${wb}/api/twilio/sms-status`);
-    const msg = await twilioFetch("/Messages.json", { method: "POST", body: params });
+    const msg = await twilioFetch("/Messages.json", { method: "POST", body: params }, accountSid ?? SID!);
     return { sid: msg.sid as string, status: "sent" };
   },
 };
+
+// -------------------------------------------- number search / subaccounts
+
+/** Search available toll-free numbers (US). Filters are optional. */
+export async function searchTollFreeNumbers(opts: {
+  areaCode?: string;
+  contains?: string;
+  limit?: number;
+}): Promise<AvailableNumber[]> {
+  const limit = Math.min(Math.max(opts.limit ?? 10, 1), 30);
+
+  if (!twilioEnabled) {
+    // Simulator: synthesise plausible toll-free numbers.
+    const prefixes = ["833", "844", "855", "866", "877", "888"];
+    return Array.from({ length: limit }, (_, i) => {
+      const prefix = opts.areaCode && /^\d{3}$/.test(opts.areaCode) ? opts.areaCode : prefixes[i % prefixes.length];
+      const line = String(1000000 + Math.floor(Math.random() * 8999999)).slice(0, 7);
+      const phoneNumber = `+1${prefix}${line}`;
+      return { phoneNumber, friendlyName: formatUsNumber(phoneNumber), region: "US (simulated)", isoCountry: "US" };
+    });
+  }
+
+  const qs = new URLSearchParams({ PageSize: String(limit) });
+  if (opts.areaCode) qs.set("AreaCode", opts.areaCode);
+  if (opts.contains) qs.set("Contains", opts.contains);
+  const data = await twilioFetch(`/AvailablePhoneNumbers/US/TollFree.json?${qs.toString()}`);
+  const rows = (data.available_phone_numbers as Record<string, unknown>[]) ?? [];
+  return rows.map((r) => ({
+    phoneNumber: r.phone_number as string,
+    friendlyName: (r.friendly_name as string) || formatUsNumber(r.phone_number as string),
+    region: (r.region as string) || (r.iso_country as string),
+    isoCountry: r.iso_country as string,
+  }));
+}
+
+/** Create a Twilio subaccount for a business; returns its SID. */
+export async function createTwilioSubaccount(friendlyName: string): Promise<string> {
+  if (!twilioEnabled) return "ACsim_" + crypto.randomBytes(12).toString("hex");
+  const body = new URLSearchParams({ FriendlyName: friendlyName.slice(0, 64) });
+  const data = await twilioRootFetch("/Accounts.json", { method: "POST", body });
+  return data.sid as string;
+}
+
+/** Buy a specific toll-free number under a subaccount, wiring our webhooks. */
+export async function purchaseTollFreeNumber(opts: {
+  subaccountSid: string;
+  phoneNumber: string;
+}): Promise<PurchasedNumber> {
+  if (!twilioEnabled) {
+    return {
+      phoneNumber: opts.phoneNumber,
+      sid: "PNsim_" + crypto.randomBytes(12).toString("hex"),
+      subaccountSid: opts.subaccountSid,
+      status: "simulated",
+      provider: "simulator",
+    };
+  }
+  const body = new URLSearchParams({ PhoneNumber: opts.phoneNumber });
+  const wb = publicWebhookBase();
+  if (wb) {
+    body.set("VoiceUrl", `${wb}/api/twilio/voice`);
+    body.set("VoiceMethod", "POST");
+    body.set("SmsUrl", `${wb}/api/twilio/inbound-sms`);
+    body.set("SmsMethod", "POST");
+  }
+  const bought = await twilioFetch("/IncomingPhoneNumbers.json", { method: "POST", body }, opts.subaccountSid);
+  return {
+    phoneNumber: bought.phone_number as string,
+    sid: bought.sid as string,
+    subaccountSid: opts.subaccountSid,
+    status: "pending_verification",
+    provider: "twilio",
+  };
+}
+
+/** Format +18885550100 → "+1 (888) 555-0100" for display. */
+function formatUsNumber(e164: string): string {
+  const m = e164.match(/^\+1(\d{3})(\d{3})(\d{4})$/);
+  return m ? `+1 (${m[1]}) ${m[2]}-${m[3]}` : e164;
+}
 
 // ------------------------------------------------ toll-free verification
 
@@ -214,8 +305,11 @@ export async function fetchTollFreeVerification(
   };
 }
 
-/** Point an owned Twilio number's webhooks at the current public base URL. */
-export async function syncNumberWebhooks(twilioSid: string): Promise<boolean> {
+/**
+ * Point an owned Twilio number's webhooks at the current public base URL.
+ * Pass the owning subaccount SID so we update it on the right account.
+ */
+export async function syncNumberWebhooks(twilioSid: string, accountSid?: string): Promise<boolean> {
   const wb = publicWebhookBase();
   if (!twilioEnabled || !wb) return false;
   const body = new URLSearchParams({
@@ -224,7 +318,7 @@ export async function syncNumberWebhooks(twilioSid: string): Promise<boolean> {
     SmsUrl: `${wb}/api/twilio/inbound-sms`,
     SmsMethod: "POST",
   });
-  await twilioFetch(`/IncomingPhoneNumbers/${twilioSid}.json`, { method: "POST", body });
+  await twilioFetch(`/IncomingPhoneNumbers/${twilioSid}.json`, { method: "POST", body }, accountSid ?? SID!);
   return true;
 }
 
@@ -232,10 +326,6 @@ export async function syncNumberWebhooks(twilioSid: string): Promise<boolean> {
 
 const simulatorProvider: TelephonyProvider = {
   name: "simulator",
-  async provisionTollFree() {
-    const suffix = String(Math.floor(1000000 + Math.random() * 8999999));
-    return { phoneNumber: `+1888${suffix}`, status: "simulated", provider: "simulator" };
-  },
   async sendSms() {
     return { sid: "sim_" + crypto.randomBytes(8).toString("hex"), status: "delivered" };
   },

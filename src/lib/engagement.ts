@@ -44,7 +44,12 @@ export async function sendTrackedSms(
   let patch: Parameters<typeof updateEngagement>[1];
   let smsError: string | undefined;
   try {
-    const sms = await providerFor(vn.provider).sendSms({ from: vn.phoneNumber, to: engagement.callerNumber, body: smsBody });
+    const sms = await providerFor(vn.provider).sendSms({
+      from: vn.phoneNumber,
+      to: engagement.callerNumber,
+      body: smsBody,
+      accountSid: vn.subaccountSid,
+    });
     patch = { smsSid: sms.sid, smsStatus: sms.status, smsBody };
   } catch (err) {
     console.error("SMS send failed:", err);

@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { currentBusiness } from "@/lib/session";
-import { createVirtualNumber, getNumberByBusiness, updateVirtualNumber } from "@/lib/store";
-import { syncNumberWebhooks, telephony, twilioEnabled } from "@/lib/telephony";
+import { createVirtualNumber, getNumberByBusiness, updateBusiness, updateVirtualNumber } from "@/lib/store";
+import {
+  createTwilioSubaccount,
+  purchaseTollFreeNumber,
+  syncNumberWebhooks,
+  twilioEnabled,
+} from "@/lib/telephony";
 import { DEFAULT_GREETING, DEFAULT_SMS_TEMPLATE, FORWARD_MINUTES_LIMIT, forwardMinutesUsed } from "@/lib/engagement";
+import { cashfreeEnabled } from "@/lib/cashfree";
 
 /** Current business's virtual number (or null). */
 export async function GET() {
@@ -14,34 +20,61 @@ export async function GET() {
 }
 
 /**
- * Provision a toll-free number for the current business.
- * If the business holds a simulated number and Twilio is now configured,
- * this upgrades it in place to a real Twilio number.
+ * Provision a chosen toll-free number for the current business.
+ * Each business gets its own Twilio subaccount; the number is bought under it.
+ * Body: { phoneNumber: "+1888…" } — one of the options from /api/numbers/available.
+ * A simulated number is upgraded in place when Twilio is now configured.
  */
-export async function POST() {
+export async function POST(req: NextRequest) {
   const biz = await currentBusiness();
   if (!biz) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  // Paywall: a paid plan is required before provisioning a number.
+  if (cashfreeEnabled && biz.planStatus !== "active") {
+    return NextResponse.json(
+      { error: "Subscribe to activate your account before getting a number.", paywall: true },
+      { status: 402 }
+    );
+  }
+
+  const body = await req.json().catch(() => null);
+  const phoneNumber = typeof body?.phoneNumber === "string" ? body.phoneNumber.trim() : "";
+  if (!/^\+?[0-9]\d{6,15}$/.test(phoneNumber.replace(/[^\d+]/g, ""))) {
+    return NextResponse.json({ error: "Pick a number from the list first." }, { status: 400 });
+  }
+
   const existing = await getNumberByBusiness(biz.id);
   if (existing && !(existing.provider === "simulator" && twilioEnabled)) {
     return NextResponse.json({ error: "You already have a number." }, { status: 400 });
   }
 
   try {
-    const bought = await telephony().provisionTollFree();
+    // 1. Ensure the business has its own Twilio subaccount.
+    let subaccountSid = biz.twilioSubaccountSid;
+    if (!subaccountSid) {
+      subaccountSid = await createTwilioSubaccount(`Haylio · ${biz.name} (${biz.handle})`);
+      await updateBusiness(biz.id, { twilioSubaccountSid: subaccountSid });
+    }
+
+    // 2. Buy the chosen number under that subaccount.
+    const bought = await purchaseTollFreeNumber({ subaccountSid, phoneNumber });
+
     if (existing) {
-      // Upgrade simulated → real, keeping greeting/template and engagement history.
       await updateVirtualNumber(existing.id, {
         phoneNumber: bought.phoneNumber,
         twilioSid: bought.sid,
+        subaccountSid: bought.subaccountSid,
         provider: bought.provider,
         status: bought.status,
       });
       return NextResponse.json({ number: { ...existing, ...bought } });
     }
+
     const vn = await createVirtualNumber({
       businessId: biz.id,
       phoneNumber: bought.phoneNumber,
       twilioSid: bought.sid,
+      subaccountSid: bought.subaccountSid,
       provider: bought.provider,
       status: bought.status,
       greeting: DEFAULT_GREETING(biz.name),
@@ -51,9 +84,7 @@ export async function POST() {
   } catch (err) {
     console.error("Number provisioning failed:", err);
     const detail = err instanceof Error ? err.message.match(/"message":"([^"]+)"/)?.[1] : undefined;
-    const msg = detail
-      ? `Twilio: ${detail}`
-      : "Could not provision a number — try again shortly.";
+    const msg = detail ? `Twilio: ${detail}` : "Could not provision a number — try again shortly.";
     return NextResponse.json({ error: msg }, { status: 502 });
   }
 }
@@ -103,7 +134,7 @@ export async function PATCH(req: NextRequest) {
   // Keep the Twilio number's webhooks pointed at PUBLIC_BASE_URL once it's public.
   if (vn.provider === "twilio" && vn.twilioSid) {
     try {
-      await syncNumberWebhooks(vn.twilioSid);
+      await syncNumberWebhooks(vn.twilioSid, vn.subaccountSid);
     } catch (err) {
       console.error("Webhook sync failed:", err);
     }

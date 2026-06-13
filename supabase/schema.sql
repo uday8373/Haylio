@@ -19,6 +19,10 @@ create table public.businesses (
   phone text not null default '',
   google_place_id text,
   verified boolean not null default false,
+  twilio_subaccount_sid text,
+  plan_status text not null default 'inactive',
+  plan_subscription_id text,
+  plan_activated_at bigint,
   logo_url text not null default '',
   cover_image_url text not null default '',
   background_image_url text not null default '',
@@ -54,6 +58,7 @@ create table if not exists public.virtual_numbers (
   business_id text unique not null references public.businesses(id) on delete cascade,
   phone_number text not null,
   twilio_sid text,
+  subaccount_sid text,
   provider text not null default 'simulator',
   status text not null default 'pending_verification',
   greeting text not null,
@@ -142,6 +147,7 @@ alter table public.sessions disable row level security;
 
 insert into public.businesses
   (id, handle, name, email, password_hash, category, description, hours, location, website, phone, verified,
+   plan_status,
    logo_url, cover_image_url, background_image_url, ai_instructions, faqs, widget, created_at)
 values (
   'biz_demo',
@@ -156,6 +162,7 @@ values (
   'https://bluebirdcafe.example.com',
   '',
   true,
+  'active',
   'https://picsum.photos/seed/bluebird-logo/200/200',
   'https://picsum.photos/seed/bluebird-cover/800/300',
   '',

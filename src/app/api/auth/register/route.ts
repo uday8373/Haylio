@@ -1,15 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createBusiness, createSession } from "@/lib/store";
 import { SESSION_COOKIE } from "@/lib/session";
+import { verifyEmailOtp } from "@/lib/emailAuth";
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
-  const { name, email, password, handle, category, place } = body ?? {};
-  if (!email || !password || !handle) {
+  const { name, email, otp, handle, category, place } = body ?? {};
+  if (!email || !handle) {
     return NextResponse.json({ error: "All fields are required." }, { status: 400 });
   }
-  if (String(password).length < 8) {
-    return NextResponse.json({ error: "Password must be at least 8 characters." }, { status: 400 });
+
+  // Verify the email OTP before creating any account.
+  const verified = await verifyEmailOtp(String(email), String(otp ?? ""));
+  if (!verified) {
+    return NextResponse.json({ error: "That code is incorrect or expired. Request a new one." }, { status: 401 });
   }
 
   // If a Google Business listing was picked, its identity is authoritative:
@@ -22,7 +26,6 @@ export async function POST(req: NextRequest) {
   const result = await createBusiness({
     name: fromGoogle ? place.name : name,
     email,
-    password,
     handle,
     category: (fromGoogle ? place.category || category : category) ?? "",
     location: fromGoogle ? place.address : undefined,
