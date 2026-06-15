@@ -41,5 +41,5 @@ export async function POST(req: NextRequest) {
 
   await sendTrackedSms(vn, eng);
   const biz = await getBusiness(eng.businessId);
-  return xml(voiceTwiml(vn.greeting || DEFAULT_GREETING(biz?.name ?? "the business")));
+  return xml(voiceTwiml(vn.greeting || DEFAULT_GREETING(biz?.name ?? "the business"), vn.voice));
 }

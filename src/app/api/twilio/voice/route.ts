@@ -10,6 +10,7 @@ import {
   startEngagement,
 } from "@/lib/engagement";
 import { getBusiness } from "@/lib/store";
+import { getIvrScript } from "@/lib/ivr";
 import { baseUrl, validateTwilioSignature } from "@/lib/telephony";
 
 function xml(body: string, status = 200) {
@@ -53,5 +54,5 @@ export async function POST(req: NextRequest) {
       ? vn.greeting
       : DEFAULT_CONFIRM_GREETING(bizName);
   const action = `${baseUrl()}/api/twilio/voice/confirm?eng=${encodeURIComponent(engagement.id)}`;
-  return xml(confirmGatherTwiml(greeting, action));
+  return xml(confirmGatherTwiml({ greeting, actionUrl: action, voice: vn.voice, script: getIvrScript(vn.ivrScriptId) }));
 }

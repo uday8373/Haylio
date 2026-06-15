@@ -1,4 +1,5 @@
 import { baseUrl, providerFor } from "./telephony";
+import { DEFAULT_VOICE, getIvrScript, isValidVoice, type IvrScript } from "./ivr";
 import {
   createEngagement,
   getBusiness,
@@ -140,50 +141,59 @@ export async function resolveVirtualNumber(to: string): Promise<VirtualNumber | 
   return getNumberByPhone(to);
 }
 
+const xmlEscape = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+/** A Polly voice id, falling back to the default if unset/invalid. */
+function sayVoice(voice?: string): string {
+  return xmlEscape(isValidVoice(voice) ? voice : DEFAULT_VOICE);
+}
+
 /** TwiML for the intercept: professional greeting, then hang up. */
-export function voiceTwiml(greeting: string): string {
-  const safe = greeting.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+export function voiceTwiml(greeting: string, voice?: string): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Pause length="1"/>
-  <Say voice="Polly.Joanna">${safe}</Say>
+  <Say voice="${sayVoice(voice)}">${xmlEscape(greeting)}</Say>
   <Hangup/>
 </Response>`;
 }
-
-const xmlEscape = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 /** Neutral greeting for the press-1 flow (the SMS hasn't been sent yet). */
 export const DEFAULT_CONFIRM_GREETING = (name: string) => `Thanks for calling ${name}!`;
 
 /**
- * TwiML for the confirmation intercept: greet the caller, then ask them to
- * press 1 to receive the support link by text. The keypress is posted to
- * `actionUrl`, which sends the SMS (see /api/twilio/voice/confirm).
+ * TwiML for the confirmation intercept: greet the caller in the chosen voice,
+ * then ask them to press 1 (wording from the chosen script). The keypress is
+ * posted to `actionUrl`, which sends the SMS (see /api/twilio/voice/confirm).
  */
-export function confirmGatherTwiml(greeting: string, actionUrl: string): string {
-  const prompt = "To get a text message with a link to reach us instantly, press 1.";
+export function confirmGatherTwiml(opts: {
+  greeting: string;
+  actionUrl: string;
+  voice?: string;
+  script?: IvrScript;
+}): string {
+  const v = sayVoice(opts.voice);
+  const script = opts.script ?? getIvrScript(undefined);
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Pause length="1"/>
-  <Gather numDigits="1" timeout="7" action="${xmlEscape(actionUrl)}" method="POST">
-    <Say voice="Polly.Joanna">${xmlEscape(greeting)}</Say>
+  <Gather numDigits="1" timeout="7" action="${xmlEscape(opts.actionUrl)}" method="POST">
+    <Say voice="${v}">${xmlEscape(opts.greeting)}</Say>
     <Pause length="1"/>
-    <Say voice="Polly.Joanna">${xmlEscape(prompt)}</Say>
+    <Say voice="${v}">${xmlEscape(script.prompt)}</Say>
   </Gather>
-  <Say voice="Polly.Joanna">We didn't catch that. Goodbye.</Say>
+  <Say voice="${v}">${xmlEscape(script.noInput)}</Say>
   <Hangup/>
 </Response>`;
 }
 
 /** TwiML spoken after the caller confirms (pressed 1) or declines. */
-export function confirmResultTwiml(sent: boolean): string {
-  const msg = sent
-    ? "Great! We've just sent you a text with a link to reach us. Talk soon!"
-    : "No problem. Goodbye.";
+export function confirmResultTwiml(opts: { sent: boolean; voice?: string; script?: IvrScript }): string {
+  const script = opts.script ?? getIvrScript(undefined);
+  const msg = opts.sent ? script.confirmSuccess : script.confirmDecline;
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="Polly.Joanna">${xmlEscape(msg)}</Say>
+  <Say voice="${sayVoice(opts.voice)}">${xmlEscape(msg)}</Say>
   <Hangup/>
 </Response>`;
 }

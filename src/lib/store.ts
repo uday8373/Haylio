@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { sbDelete, sbInsert, sbSelect, sbUpdate, supabaseEnabled } from "./supabase";
+import { DEFAULT_VOICE, DEFAULT_IVR_SCRIPT_ID } from "./ivr";
 import type { Business, Conversation, Engagement, Message, PublicBusiness, Channel, VirtualNumber, SmsVerification, VisitorMeta, LeadTag, LeadTagRecord, CalendarAccount, ConversationTag, TeamMember, TeamRole } from "./types";
 
 /**
@@ -523,6 +524,7 @@ type VnRow = {
   subaccount_sid: string | null;
   provider: VirtualNumber["provider"]; status: VirtualNumber["status"];
   greeting: string; sms_template: string;
+  voice: string | null; ivr_script_id: string | null;
   forwarding_enabled: boolean | null; forward_to_number: string | null;
   forward_start: string | null; forward_end: string | null;
   dnd_enabled: boolean | null; dnd_start: string | null; dnd_end: string | null;
@@ -536,6 +538,8 @@ function rowToVn(r: VnRow): VirtualNumber {
     twilioSid: r.twilio_sid ?? undefined, subaccountSid: r.subaccount_sid ?? undefined,
     provider: r.provider, status: r.status,
     greeting: r.greeting, smsTemplate: r.sms_template,
+    voice: r.voice ?? DEFAULT_VOICE,
+    ivrScriptId: r.ivr_script_id ?? DEFAULT_IVR_SCRIPT_ID,
     forwardingEnabled: r.forwarding_enabled ?? false,
     forwardToNumber: r.forward_to_number ?? "",
     forwardStart: r.forward_start ?? "09:00",
@@ -564,11 +568,13 @@ export async function getNumberByPhone(phoneNumber: string): Promise<VirtualNumb
   return [...mem().virtualNumbers.values()].find((v) => v.phoneNumber === phoneNumber);
 }
 
-type VnDefaults = "forwardingEnabled" | "forwardToNumber" | "forwardStart" | "forwardEnd" | "dndEnabled" | "dndStart" | "dndEnd" | "tzOffsetMinutes";
+type VnDefaults = "voice" | "ivrScriptId" | "forwardingEnabled" | "forwardToNumber" | "forwardStart" | "forwardEnd" | "dndEnabled" | "dndStart" | "dndEnd" | "tzOffsetMinutes";
 
 export async function createVirtualNumber(vn: Omit<VirtualNumber, "id" | "createdAt" | VnDefaults>): Promise<VirtualNumber> {
   const full: VirtualNumber = {
     ...vn,
+    voice: DEFAULT_VOICE,
+    ivrScriptId: DEFAULT_IVR_SCRIPT_ID,
     forwardingEnabled: false,
     forwardToNumber: "",
     forwardStart: "09:00",
@@ -586,6 +592,7 @@ export async function createVirtualNumber(vn: Omit<VirtualNumber, "id" | "create
       twilio_sid: full.twilioSid ?? null, subaccount_sid: full.subaccountSid ?? null,
       provider: full.provider, status: full.status,
       greeting: full.greeting, sms_template: full.smsTemplate,
+      voice: full.voice, ivr_script_id: full.ivrScriptId,
       forwarding_enabled: false, forward_to_number: "",
       forward_start: full.forwardStart, forward_end: full.forwardEnd,
       dnd_enabled: false, dnd_start: full.dndStart, dnd_end: full.dndEnd,
@@ -603,7 +610,7 @@ export async function updateVirtualNumber(
   patch: Partial<
     Pick<
       VirtualNumber,
-      | "greeting" | "smsTemplate" | "status" | "twilioSid" | "subaccountSid" | "phoneNumber" | "provider"
+      | "greeting" | "smsTemplate" | "voice" | "ivrScriptId" | "status" | "twilioSid" | "subaccountSid" | "phoneNumber" | "provider"
       | "forwardingEnabled" | "forwardToNumber" | "forwardStart" | "forwardEnd"
       | "dndEnabled" | "dndStart" | "dndEnd" | "tzOffsetMinutes"
     >
@@ -613,6 +620,8 @@ export async function updateVirtualNumber(
     const row: Record<string, unknown> = {};
     if (patch.greeting !== undefined) row.greeting = patch.greeting;
     if (patch.smsTemplate !== undefined) row.sms_template = patch.smsTemplate;
+    if (patch.voice !== undefined) row.voice = patch.voice;
+    if (patch.ivrScriptId !== undefined) row.ivr_script_id = patch.ivrScriptId;
     if (patch.status !== undefined) row.status = patch.status;
     if (patch.twilioSid !== undefined) row.twilio_sid = patch.twilioSid;
     if (patch.subaccountSid !== undefined) row.subaccount_sid = patch.subaccountSid;

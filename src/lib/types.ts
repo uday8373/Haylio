@@ -169,6 +169,10 @@ export interface VirtualNumber {
   status: "simulated" | "pending_verification" | "active";
   greeting: string;
   smsTemplate: string;
+  /** Amazon Polly voice for the IVR (see IVR_VOICES). */
+  voice: string;
+  /** Predefined IVR wording preset (see IVR_SCRIPTS). */
+  ivrScriptId: string;
   /** Ring the owner's real number first (caller ID = the toll-free number). */
   forwardingEnabled: boolean;
   forwardToNumber: string;

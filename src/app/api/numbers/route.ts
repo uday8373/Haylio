@@ -8,6 +8,7 @@ import {
   twilioEnabled,
 } from "@/lib/telephony";
 import { DEFAULT_GREETING, DEFAULT_SMS_TEMPLATE, FORWARD_MINUTES_LIMIT, forwardMinutesUsed } from "@/lib/engagement";
+import { isValidScriptId, isValidVoice } from "@/lib/ivr";
 import { billingEnabled } from "@/lib/billing";
 
 /** Current business's virtual number (or null). */
@@ -98,13 +99,16 @@ export async function PATCH(req: NextRequest) {
 
   const body = await req.json().catch(() => null);
   const patch: {
-    greeting?: string; smsTemplate?: string; forwardingEnabled?: boolean; forwardToNumber?: string;
+    greeting?: string; smsTemplate?: string; voice?: string; ivrScriptId?: string;
+    forwardingEnabled?: boolean; forwardToNumber?: string;
     forwardStart?: string; forwardEnd?: string; dndEnabled?: boolean; dndStart?: string; dndEnd?: string;
     tzOffsetMinutes?: number;
   } = {};
   const isHHMM = (s: unknown): s is string => typeof s === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(s);
   if (typeof body?.greeting === "string") patch.greeting = body.greeting.slice(0, 500);
   if (typeof body?.smsTemplate === "string") patch.smsTemplate = body.smsTemplate.slice(0, 320);
+  if (isValidVoice(body?.voice)) patch.voice = body.voice;
+  if (isValidScriptId(body?.ivrScriptId)) patch.ivrScriptId = body.ivrScriptId;
   if (typeof body?.forwardingEnabled === "boolean") patch.forwardingEnabled = body.forwardingEnabled;
   if (isHHMM(body?.forwardStart)) patch.forwardStart = body.forwardStart;
   if (isHHMM(body?.forwardEnd)) patch.forwardEnd = body.forwardEnd;

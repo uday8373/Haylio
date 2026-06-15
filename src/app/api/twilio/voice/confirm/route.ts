@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { confirmResultTwiml, resolveVirtualNumber, sendTrackedSms } from "@/lib/engagement";
 import { getEngagement, updateEngagement } from "@/lib/store";
+import { getIvrScript } from "@/lib/ivr";
 import { baseUrl, validateTwilioSignature } from "@/lib/telephony";
 
 function xml(body: string, status = 200) {
@@ -24,14 +25,17 @@ export async function POST(req: NextRequest) {
     return new NextResponse("Invalid signature", { status: 403 });
   }
 
+  const vn = params.To ? await resolveVirtualNumber(params.To) : undefined;
+  const script = getIvrScript(vn?.ivrScriptId);
+  const voice = vn?.voice;
+
   // Caller declined or didn't press 1.
-  if (params.Digits !== "1") return xml(confirmResultTwiml(false));
+  if (params.Digits !== "1") return xml(confirmResultTwiml({ sent: false, voice, script }));
 
   const engagement = eng ? await getEngagement(eng) : undefined;
-  const vn = params.To ? await resolveVirtualNumber(params.To) : undefined;
-  if (!engagement || !vn) return xml(confirmResultTwiml(false));
+  if (!engagement || !vn) return xml(confirmResultTwiml({ sent: false, voice, script }));
 
   await updateEngagement(engagement.id, { callOutcome: "texted" });
   const { smsError } = await sendTrackedSms(vn, engagement);
-  return xml(confirmResultTwiml(!smsError));
+  return xml(confirmResultTwiml({ sent: !smsError, voice, script }));
 }

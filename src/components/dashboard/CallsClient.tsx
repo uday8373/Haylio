@@ -6,6 +6,7 @@ import type { SmsVerificationStatus, VirtualNumber } from "@/lib/types";
 import { CheckIcon, PhoneIcon, SearchIcon, SendIcon, SparklesIcon } from "@/components/icons";
 import SmsStatusBadges from "@/components/dashboard/SmsStatusBadges";
 import { SUPPORT_TEMPLATES, renderSupport } from "@/lib/supportTemplates";
+import { IVR_VOICES, IVR_SCRIPTS, DEFAULT_VOICE, DEFAULT_IVR_SCRIPT_ID, getIvrScript } from "@/lib/ivr";
 
 interface AvailableNumber {
   phoneNumber: string;
@@ -34,6 +35,9 @@ export function NumberCard({
   const [error, setError] = useState("");
   const [greeting, setGreeting] = useState(vn?.greeting ?? "");
   const [smsTemplate, setSmsTemplate] = useState(vn?.smsTemplate ?? "");
+  const [voice, setVoice] = useState(vn?.voice ?? DEFAULT_VOICE);
+  const [ivrScriptId, setIvrScriptId] = useState(vn?.ivrScriptId ?? DEFAULT_IVR_SCRIPT_ID);
+  const [previewing, setPreviewing] = useState(false);
   const [forwardingEnabled, setForwardingEnabled] = useState(vn?.forwardingEnabled ?? false);
   const [forwardToNumber, setForwardToNumber] = useState(vn?.forwardToNumber ?? "");
   const [forwardStart, setForwardStart] = useState(vn?.forwardStart ?? "09:00");
@@ -101,6 +105,8 @@ export function NumberCard({
       body: JSON.stringify({
         greeting,
         smsTemplate,
+        voice,
+        ivrScriptId,
         forwardingEnabled,
         forwardToNumber,
         forwardStart,
@@ -307,8 +313,48 @@ export function NumberCard({
         </div>
 
         <div>
-          <label className="label">Voice greeting <span className="text-[#a6a59c] font-normal">{forwardingEnabled ? "(played when you miss a forwarded call)" : "(played to every caller, then we hang up)"}</span></label>
+          <label className="label">Voice greeting <span className="text-[#a6a59c] font-normal">{forwardingEnabled ? "(played when you miss a forwarded call)" : "(played to every caller, then we ask them to press 1)"}</span></label>
           <textarea className="input min-h-20" value={greeting} onChange={(e) => setGreeting(e.target.value)} maxLength={500} />
+        </div>
+
+        {/* IVR voice (tone / accent) */}
+        <div>
+          <label className="label">Voice & tone <span className="text-[#a6a59c] font-normal">— how the greeting is spoken</span></label>
+          <select className="input" value={voice} onChange={(e) => setVoice(e.target.value)}>
+            {IVR_VOICES.map((v) => (
+              <option key={v.id} value={v.id}>{v.label}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* IVR script (press-1 wording) */}
+        <div>
+          <label className="label">Press-1 prompt wording</label>
+          <div className="grid sm:grid-cols-2 gap-2">
+            {IVR_SCRIPTS.map((s) => {
+              const active = s.id === ivrScriptId;
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => setIvrScriptId(s.id)}
+                  className={`text-left rounded-2xl border p-3 transition ${
+                    active ? "border-[#21201a] bg-[#faf9f6]" : "border-[#e8e8e4] hover:border-[#c9c9c3]"
+                  }`}
+                >
+                  <span className="flex items-center gap-2 text-sm font-semibold text-[#232219]">
+                    <span className={`w-3.5 h-3.5 rounded-full border-[3px] shrink-0 ${active ? "border-[#e8552f] bg-white" : "border-[#d8d8d3] bg-white"}`} />
+                    {s.label}
+                  </span>
+                  <span className="block text-[11px] text-[#8a897f] mt-1 ml-[22px]">{s.description}</span>
+                </button>
+              );
+            })}
+          </div>
+          <div className="mt-2.5">
+            <p className="text-[10px] font-bold text-[#a6a59c] tracking-wide">CALLER HEARS (AFTER GREETING)</p>
+            <p className="mt-1 text-sm text-[#4b4a42] italic">"{getIvrScript(ivrScriptId).prompt}"</p>
+          </div>
         </div>
         <div>
           <label className="label">
