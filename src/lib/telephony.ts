@@ -209,10 +209,19 @@ export interface TollFreeVerificationInput {
   tollfreePhoneNumberSid: string;
   additionalInformation?: string;
   businessStreetAddress?: string;
+  businessStreetAddress2?: string;
+  businessCity?: string;
+  businessStateProvinceRegion?: string;
+  businessPostalCode?: string;
+  businessCountry?: string;
   businessContactFirstName?: string;
   businessContactLastName?: string;
   businessContactEmail?: string;
   businessContactPhone?: string;
+  businessType?: string;
+  businessRegistrationNumber?: string;
+  businessRegistrationAuthority?: string;
+  businessRegistrationCountry?: string;
 }
 
 export type TollFreeVerificationStatus = "pending" | "verified" | "rejected";
@@ -278,10 +287,19 @@ export async function submitTollFreeVerification(
   body.set("TollfreePhoneNumberSid", input.tollfreePhoneNumberSid);
   if (input.additionalInformation) body.set("AdditionalInformation", input.additionalInformation);
   if (input.businessStreetAddress) body.set("BusinessStreetAddress", input.businessStreetAddress);
+  if (input.businessStreetAddress2) body.set("BusinessStreetAddress2", input.businessStreetAddress2);
+  if (input.businessCity) body.set("BusinessCity", input.businessCity);
+  if (input.businessStateProvinceRegion) body.set("BusinessStateProvinceRegion", input.businessStateProvinceRegion);
+  if (input.businessPostalCode) body.set("BusinessPostalCode", input.businessPostalCode);
+  if (input.businessCountry) body.set("BusinessCountry", input.businessCountry);
   if (input.businessContactFirstName) body.set("BusinessContactFirstName", input.businessContactFirstName);
   if (input.businessContactLastName) body.set("BusinessContactLastName", input.businessContactLastName);
   if (input.businessContactEmail) body.set("BusinessContactEmail", input.businessContactEmail);
   if (input.businessContactPhone) body.set("BusinessContactPhone", input.businessContactPhone);
+  if (input.businessType) body.set("BusinessType", input.businessType);
+  if (input.businessRegistrationNumber) body.set("BusinessRegistrationNumber", input.businessRegistrationNumber);
+  if (input.businessRegistrationAuthority) body.set("BusinessRegistrationAuthority", input.businessRegistrationAuthority);
+  if (input.businessRegistrationCountry) body.set("BusinessRegistrationCountry", input.businessRegistrationCountry);
 
   const data = await messagingFetch("/Tollfree/Verifications", { method: "POST", body });
   return {

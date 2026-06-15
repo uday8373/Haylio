@@ -166,10 +166,16 @@ export default function Landing() {
   const [tab, setTab] = useState(0);
   const [handle, setHandle] = useState("");
   const [active, setActive] = useState(0);
+  const [loggedIn, setLoggedIn] = useState(false);
 
   useEffect(() => {
     const t = setInterval(() => setActive((a) => (a + 1) % showcase.length), 3800);
     return () => clearInterval(t);
+  }, []);
+
+  // Reflect auth state: /api/business returns 200 when a valid session exists.
+  useEffect(() => {
+    fetch("/api/business").then((r) => setLoggedIn(r.ok)).catch(() => {});
   }, []);
 
   return (
@@ -190,16 +196,28 @@ export default function Landing() {
             ))}
           </div>
           <div className="flex items-center gap-2">
-            <Link href="/login" className="text-sm text-white/90 px-4 py-2 rounded-full hover:bg-white/10 transition">
-              Login
-            </Link>
-            <Link
-              href="/register"
-              className="text-sm font-semibold bg-white px-4 py-2 rounded-xl transition hover:scale-105 hover:shadow-lg"
-              style={{ color: PURPLE }}
-            >
-              Get Started
-            </Link>
+            {loggedIn ? (
+              <Link
+                href="/dashboard"
+                className="text-sm font-semibold bg-white px-5 py-2 rounded-xl transition hover:scale-105 hover:shadow-lg"
+                style={{ color: PURPLE }}
+              >
+                Dashboard →
+              </Link>
+            ) : (
+              <>
+                <Link href="/login" className="text-sm text-white/90 px-4 py-2 rounded-full hover:bg-white/10 transition">
+                  Login
+                </Link>
+                <Link
+                  href="/register"
+                  className="text-sm font-semibold bg-white px-4 py-2 rounded-xl transition hover:scale-105 hover:shadow-lg"
+                  style={{ color: PURPLE }}
+                >
+                  Get Started
+                </Link>
+              </>
+            )}
           </div>
         </nav>
 
@@ -417,11 +435,11 @@ export default function Landing() {
             <span className="text-pastel">impossible to spam</span>
           </h2>
           <Link
-            href="/register"
+            href={loggedIn ? "/dashboard" : "/register"}
             className="inline-block mt-9 bg-white text-sm font-semibold px-7 py-3.5 rounded-2xl transition hover:scale-105 hover:shadow-2xl animate-fade-up delay-300"
             style={{ color: PURPLE }}
           >
-            Get Started for Free
+            {loggedIn ? "Go to your Dashboard" : "Get Started for Free"}
           </Link>
         </div>
 
@@ -456,7 +474,9 @@ export default function Landing() {
         <footer className="relative z-10 border-t border-white/10 py-8 text-center text-xs text-white/50">
           haylio — your business's front door, without your personal number. ·{" "}
           <Link href="/b/demo-cafe" className="underline underline-offset-2 hover:text-white/80">live demo</Link> ·{" "}
-          <Link href="/login" className="underline underline-offset-2 hover:text-white/80">log in</Link>
+          <Link href={loggedIn ? "/dashboard" : "/login"} className="underline underline-offset-2 hover:text-white/80">
+            {loggedIn ? "dashboard" : "log in"}
+          </Link>
         </footer>
       </section>
     </main>

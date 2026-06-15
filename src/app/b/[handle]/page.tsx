@@ -1,7 +1,34 @@
-import { getBusinessByHandle, toPublic } from "@/lib/store";
+import { cookies } from "next/headers";
+import { getBusinessByHandle, getConversation, getEngagementByToken, toPublic } from "@/lib/store";
 import ContactWidget from "@/components/ContactWidget";
 import Link from "next/link";
 import { SearchIcon, ZapIcon } from "@/components/icons";
+
+/** Resolve a resumable conversation for this visitor from their cookies. */
+async function resolveResume(handle: string, businessId: string) {
+  const jar = await cookies();
+
+  // 1. Returning chat visitor — cookie holds "<conversationId>.<visitorKey>".
+  const chatCookie = jar.get(`haylio_chat_${handle}`)?.value;
+  if (chatCookie) {
+    const [cid, vk] = chatCookie.split(".");
+    const conv = cid ? await getConversation(cid) : undefined;
+    if (conv && conv.businessId === businessId && conv.visitorKey === vk) {
+      return { conversationId: conv.id, visitorKey: conv.visitorKey };
+    }
+  }
+
+  // 2. Arrived via a post-call SMS link — resume the conversation tied to it.
+  const engToken = jar.get("haylio_engagement")?.value;
+  if (engToken) {
+    const eng = await getEngagementByToken(engToken);
+    if (eng && eng.businessId === businessId && eng.conversationId) {
+      const conv = await getConversation(eng.conversationId);
+      if (conv) return { conversationId: conv.id, visitorKey: conv.visitorKey };
+    }
+  }
+  return undefined;
+}
 
 export default async function PublicContactPage({
   params,
@@ -26,11 +53,12 @@ export default async function PublicContactPage({
   }
 
   const pub = toPublic(biz);
+  const resume = await resolveResume(handle, biz.id);
 
   if (embed) {
     return (
       <main className="light min-h-screen flex items-start justify-center p-2">
-        <ContactWidget business={pub} />
+        <ContactWidget business={pub} resume={resume} />
       </main>
     );
   }
@@ -50,7 +78,7 @@ export default async function PublicContactPage({
         </>
       )}
       <div className="relative w-full flex justify-center animate-scale-in">
-        <ContactWidget business={pub} />
+        <ContactWidget business={pub} resume={resume} />
       </div>
       <p className="relative mt-7 text-xs text-white/80 flex items-center gap-1.5">
         Powered by{" "}

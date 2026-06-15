@@ -1,10 +1,25 @@
-import { currentBusiness } from "@/lib/session";
-import { BadgeCheckIcon, BellIcon, PhoneIcon, RotateIcon, UsersIcon } from "@/components/icons";
+import { currentActor } from "@/lib/session";
+import { listTeamMembers } from "@/lib/store";
+import { baseUrl } from "@/lib/telephony";
+import { emailProviderEnabled } from "@/lib/email";
+import TeamSettings from "@/components/dashboard/TeamSettings";
+import { BadgeCheckIcon, BellIcon, PhoneIcon, RotateIcon } from "@/components/icons";
 
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
-  const biz = (await currentBusiness())!;
+  const actor = (await currentActor())!;
+  const biz = actor.business;
+  const isAdmin = actor.role === "admin";
+  const teamRows = await listTeamMembers(biz.id);
+  const members = teamRows.map((m) => ({
+    id: m.id,
+    email: m.email,
+    role: m.role,
+    status: m.status,
+    // Only expose the invite token to admins (it's a capability to join).
+    token: isAdmin ? m.token : undefined,
+  }));
 
   return (
     <div className="max-w-2xl">
@@ -39,13 +54,22 @@ export default async function SettingsPage() {
         </dl>
       </section>
 
+      <TeamSettings
+        isAdmin={isAdmin}
+        ownerEmail={biz.email}
+        ownerName={biz.name}
+        currentEmail={actor.email}
+        members={members}
+        baseUrl={baseUrl()}
+        emailProviderEnabled={emailProviderEnabled}
+      />
+
       <section className="mt-5 card p-5 md:p-7 animate-fade-up delay-150">
         <h2 className="font-bold text-[#232219]">Coming soon</h2>
         <ul className="mt-4 space-y-3 text-sm text-[#8a897f]">
           <li className="flex items-center gap-3"><RotateIcon size={15} className="text-[#4b4a42]" /> Regenerate link (if your link ever gets abused)</li>
           <li className="flex items-center gap-3"><BellIcon size={15} className="text-[#4b4a42]" /> Email & push notifications for new messages</li>
           <li className="flex items-center gap-3"><PhoneIcon size={15} className="text-[#4b4a42]" /> Masked phone number & call proxy to your real number</li>
-          <li className="flex items-center gap-3"><UsersIcon size={15} className="text-[#4b4a42]" /> Team members in the inbox</li>
         </ul>
       </section>
     </div>

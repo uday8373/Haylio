@@ -60,6 +60,41 @@ export interface Message {
   at: number;
 }
 
+/** Everything we can learn about a widget visitor at first contact. */
+export interface VisitorMeta {
+  // Network / geo (server-derived)
+  ip?: string;
+  country?: string; // ISO 3166-1 alpha-2
+  region?: string;
+  city?: string;
+  // Device / browser
+  browser?: string;
+  browserVersion?: string;
+  os?: string;
+  deviceType?: "mobile" | "tablet" | "desktop";
+  userAgent?: string;
+  // Locale / display (mostly client-provided)
+  language?: string;
+  languages?: string[];
+  timezone?: string;
+  screen?: string; // "1920×1080"
+  viewport?: string; // "1280×800"
+  devicePixelRatio?: number;
+  platform?: string;
+  deviceMemory?: number; // GB
+  cpuCores?: number;
+  touch?: boolean;
+  connection?: string; // effective connection type, e.g. "4g"
+  colorScheme?: "light" | "dark";
+  // Source
+  referrer?: string;
+  pageUrl?: string;
+  collectedAt?: number;
+}
+
+/** Owner-set category for a conversation. "none" = untagged. */
+export type ConversationTag = "none" | "query" | "complaint" | "request" | "spam";
+
 export interface Conversation {
   id: string;
   businessId: string;
@@ -69,8 +104,41 @@ export interface Conversation {
   visitorKey: string;
   messages: Message[];
   unread: boolean;
+  /** Owner-assigned category (query/complaint/request/spam). */
+  tag?: ConversationTag;
+  /** Visitor analytics captured when the conversation began. */
+  visitorMeta?: VisitorMeta;
   createdAt: number;
   updatedAt: number;
+}
+
+// ------------------------------------------------------------------ team
+
+/** Roles a teammate can hold within a business. Owner is always an admin. */
+export type TeamRole = "admin" | "member";
+
+/** Lifecycle of an invited teammate. */
+export type TeamMemberStatus = "invited" | "active";
+
+/**
+ * A teammate invited to view and manage a business. The business owner is the
+ * implicit admin and is not stored as a member. Each invited email is unique
+ * across the app — once invited/accepted it can't be used to sign up a new
+ * business.
+ */
+export interface TeamMember {
+  id: string;
+  businessId: string;
+  /** Normalized (lowercase) email the invite was sent to. */
+  email: string;
+  role: TeamRole;
+  status: TeamMemberStatus;
+  /** Name of the admin who sent the invite (for display). */
+  invitedByName?: string;
+  /** Single-use-ish token embedded in the accept link. */
+  token: string;
+  invitedAt: number;
+  acceptedAt?: number;
 }
 
 /** Business shape safe to send to the public widget. */
@@ -167,14 +235,40 @@ export type OptInType =
   | "qr_code"
   | "other";
 
+/** Twilio business-type enum (required for toll-free verification). */
+export type BusinessType =
+  | "PRIVATE_PROFIT"
+  | "PUBLIC_PROFIT"
+  | "NON_PROFIT"
+  | "SOLE_PROPRIETOR"
+  | "GOVERNMENT";
+
+/** Twilio business-registration authority enum (OTHER covers anything unlisted). */
+export type RegistrationAuthority =
+  | "EIN" | "CBN" | "CRN" | "PROVINCIAL_NUMBER" | "VAT" | "ACN" | "ABN" | "BRN"
+  | "SIREN" | "SIRET" | "NZBN" | "USt-IdNr" | "CIF" | "NIF" | "CNPJ" | "UID" | "NEQ" | "OTHER";
+
 export interface SmsVerification {
   id: string;
   businessId: string;
   /** Business name as it should appear to the carrier. */
   businessName: string;
   website: string;
-  /** Business address. */
+  /** Combined address (for our records/display). */
   address: string;
+  /** Structured address (required by the carrier). */
+  addressStreet: string;
+  addressStreet2: string;
+  addressCity: string;
+  addressState: string;
+  addressPostal: string;
+  addressCountry: string; // ISO 3166-1 alpha-2
+  /** Carrier-required business type. */
+  businessType: BusinessType | "";
+  /** Registration details — required unless businessType is SOLE_PROPRIETOR. */
+  registrationNumber: string;
+  registrationAuthority: RegistrationAuthority | "";
+  registrationCountry: string; // ISO 3166-1 alpha-2, e.g. "US", "IN"
   contactName: string;
   contactEmail: string;
   contactPhone: string;
@@ -201,6 +295,93 @@ export interface SmsVerification {
   reviewedAt?: number;
   createdAt: number;
   updatedAt: number;
+}
+
+// ------------------------------------------------------------------- CRM
+
+/** Manual lead status set by the business owner. "none" = untagged/new. */
+export type LeadTag = "none" | "hot" | "warm" | "qualified" | "cold";
+
+/** Persisted CRM overlay for a lead, keyed by business + contact key. */
+export interface LeadTagRecord {
+  businessId: string;
+  contactKey: string;
+  tag: LeadTag;
+  note?: string;
+  /** Owner-edited display name, overrides the derived one. */
+  name?: string;
+  updatedAt: number;
+}
+
+export type LeadTimelineKind =
+  | "call"
+  | "sms"
+  | "click"
+  | "chat"
+  | "message"
+  | "voicemail"
+  | "callback";
+
+/** One interaction in a lead's unified, cross-channel timeline. */
+export interface LeadTimelineItem {
+  id: string;
+  kind: LeadTimelineKind;
+  at: number;
+  title: string;
+  detail?: string;
+  status?: string;
+  conversationId?: string;
+}
+
+/** A lead = one person, aggregating every interaction across channels. */
+export interface Lead {
+  /** Stable contact key (also the id used in URLs/tagging). */
+  key: string;
+  businessId: string;
+  name: string;
+  contact?: string;
+  phone?: string;
+  email?: string;
+  channels: LeadTimelineKind[];
+  tag: LeadTag;
+  note?: string;
+  /** Heuristic 0–100 engagement score. */
+  score: number;
+  firstAt: number;
+  lastAt: number;
+  callCount: number;
+  messageCount: number;
+  clicked: boolean;
+  timeline: LeadTimelineItem[];
+}
+
+/**
+ * A connected calendar (Google) for appointment booking. Stored separately
+ * from Business so OAuth tokens never leak through business API responses.
+ */
+export interface CalendarAccount {
+  businessId: string;
+  provider: "google";
+  email: string;
+  calendarId: string; // usually "primary"
+  refreshToken: string;
+  accessToken?: string;
+  tokenExpiry?: number;
+  // Availability config (owner's local working window).
+  slotMinutes: number; // appointment length
+  days: number[]; // workdays, 0=Sun … 6=Sat
+  startHour: number; // e.g. 9
+  endHour: number; // e.g. 17
+  tzOffsetMinutes: number; // owner's UTC offset (as from Date.getTimezoneOffset)
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** A bookable appointment slot offered to a lead. */
+export interface BookingSlot {
+  startISO: string; // RFC3339 with offset
+  endISO: string;
+  label: string; // human label in the owner's timezone, e.g. "Tue, Jun 17 · 2:30 PM"
 }
 
 /** A Google Business candidate returned by the places search. */

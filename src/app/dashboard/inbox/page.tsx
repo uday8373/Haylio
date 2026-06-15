@@ -2,6 +2,7 @@ import Link from "next/link";
 import { currentBusiness } from "@/lib/session";
 import { listConversations } from "@/lib/store";
 import { timeAgo } from "@/lib/ui";
+import { countryFlag } from "@/lib/visitor";
 import { ChannelIcon, ChevronRightIcon } from "@/components/icons";
 
 export const dynamic = "force-dynamic";
@@ -70,6 +71,12 @@ export default async function Inbox({
                     {c.visitorName || "Visitor"}
                   </span>
                   {c.visitorContact && <span className="text-[#a6a59c] font-normal truncate hidden sm:inline">· {c.visitorContact}</span>}
+                  {c.visitorMeta?.country && (
+                    <span className="shrink-0" title={c.visitorMeta.country}>{countryFlag(c.visitorMeta.country)}</span>
+                  )}
+                  {c.visitorMeta?.deviceType && (
+                    <span className="text-[10px] text-[#a6a59c] font-normal capitalize hidden sm:inline">{c.visitorMeta.deviceType}</span>
+                  )}
                   <span className={c.unread ? "pill-dark" : "pill-soft"}>{c.unread ? "New" : "Replied"}</span>
                 </span>
                 <span className="block text-xs text-[#8a897f] truncate mt-1">

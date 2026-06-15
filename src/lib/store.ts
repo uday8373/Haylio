@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import { sbDelete, sbInsert, sbSelect, sbUpdate, supabaseEnabled } from "./supabase";
-import type { Business, Conversation, Engagement, Message, PublicBusiness, Channel, VirtualNumber, SmsVerification } from "./types";
+import type { Business, Conversation, Engagement, Message, PublicBusiness, Channel, VirtualNumber, SmsVerification, VisitorMeta, LeadTag, LeadTagRecord, CalendarAccount, ConversationTag, TeamMember, TeamRole } from "./types";
 
 /**
  * Data layer. Uses Supabase (PostgREST) when SUPABASE_URL/SUPABASE_ANON_KEY
@@ -40,7 +40,8 @@ type BizRow = {
 type ConvRow = {
   id: string; business_id: string; channel: Channel; visitor_name: string | null;
   visitor_contact: string | null; visitor_key: string; unread: boolean;
-  messages: Message[]; created_at: number; updated_at: number;
+  messages: Message[]; visitor_meta: VisitorMeta | null; tag: ConversationTag | null;
+  created_at: number; updated_at: number;
 };
 
 function rowToBiz(r: BizRow): Business {
@@ -79,20 +80,34 @@ function rowToConv(r: ConvRow): Conversation {
     id: r.id, businessId: r.business_id, channel: r.channel,
     visitorName: r.visitor_name ?? undefined, visitorContact: r.visitor_contact ?? undefined,
     visitorKey: r.visitor_key, unread: r.unread, messages: r.messages ?? [],
+    visitorMeta: r.visitor_meta ?? undefined, tag: r.tag ?? "none",
     createdAt: Number(r.created_at), updatedAt: Number(r.updated_at),
   };
 }
 
 // --------------------------------------------------------- in-memory store
 
+/** Who a session belongs to: the owner (admin) or an invited teammate. */
+export interface SessionRecord {
+  businessId: string;
+  role: TeamRole;
+  /** Acting user's email (owner's business email, or the teammate's email). */
+  email: string;
+  /** Set when the actor is an invited teammate (absent ⇒ owner). */
+  memberId?: string;
+}
+
 interface MemStore {
   businesses: Map<string, Business>;
   conversations: Map<string, Conversation>;
-  sessions: Map<string, string>;
+  sessions: Map<string, SessionRecord>;
   virtualNumbers: Map<string, VirtualNumber>;
   engagements: Map<string, Engagement>;
   smsVerifications: Map<string, SmsVerification>;
   optinUploads: Map<string, OptinUpload>;
+  leadTags: Map<string, LeadTagRecord>;
+  calendarAccounts: Map<string, CalendarAccount>;
+  teamMembers: Map<string, TeamMember>;
 }
 
 /** A temporary opt-in proof image, hosted publicly until verification finalises. */
@@ -116,6 +131,9 @@ function seed(): MemStore {
     engagements: new Map(),
     smsVerifications: new Map(),
     optinUploads: new Map(),
+    leadTags: new Map(),
+    calendarAccounts: new Map(),
+    teamMembers: new Map(),
   };
   const demo: Business = {
     id: "biz_demo",
@@ -316,24 +334,65 @@ export function toPublic(b: Business): PublicBusiness {
 
 // ---------------------------------------------------------------- sessions
 
-export async function createSession(businessId: string): Promise<string> {
+export interface SessionActor {
+  business: Business;
+  role: TeamRole;
+  email: string;
+  memberId?: string;
+  /** True when the session belongs to the business owner (not an invited member). */
+  isOwner: boolean;
+}
+
+export async function createSession(
+  businessId: string,
+  actor?: { role: TeamRole; email: string; memberId?: string }
+): Promise<string> {
   const token = uid("sess_");
+  const role: TeamRole = actor?.role ?? "admin";
+  const email = actor?.email ?? "";
   if (supabaseEnabled) {
-    await sbInsert("sessions", { token, business_id: businessId, created_at: Date.now() });
+    // Best-effort: persist the actor columns if the schema has them, otherwise
+    // fall back to the legacy minimal row so existing deployments keep working.
+    try {
+      await sbInsert("sessions", {
+        token, business_id: businessId, created_at: Date.now(),
+        role, actor_email: email || null, member_id: actor?.memberId ?? null,
+      });
+    } catch {
+      await sbInsert("sessions", { token, business_id: businessId, created_at: Date.now() });
+    }
   } else {
-    mem().sessions.set(token, businessId);
+    mem().sessions.set(token, { businessId, role, email, memberId: actor?.memberId });
   }
   return token;
 }
 
-export async function getSessionBusiness(token: string | undefined): Promise<Business | undefined> {
+/** Resolve a session token to the acting user (business + role + identity). */
+export async function getSessionActor(token: string | undefined): Promise<SessionActor | undefined> {
   if (!token) return undefined;
   if (supabaseEnabled) {
-    const rows = await sbSelect<{ business_id: string }>("sessions", `token=eq.${encodeURIComponent(token)}&limit=1`);
-    return rows[0] ? getBusiness(rows[0].business_id) : undefined;
+    const rows = await sbSelect<Record<string, unknown>>(
+      "sessions",
+      `token=eq.${encodeURIComponent(token)}&select=*&limit=1`
+    );
+    const r = rows[0];
+    if (!r) return undefined;
+    const business = await getBusiness(String(r.business_id));
+    if (!business) return undefined;
+    const memberId = (r.member_id as string) || undefined;
+    const role: TeamRole = r.role === "member" ? "member" : "admin";
+    const email = (r.actor_email as string) || business.email;
+    return { business, role, email, memberId, isOwner: !memberId };
   }
-  const bizId = mem().sessions.get(token);
-  return bizId ? getBusiness(bizId) : undefined;
+  const rec = mem().sessions.get(token);
+  if (!rec) return undefined;
+  const business = await getBusiness(rec.businessId);
+  if (!business) return undefined;
+  return { business, role: rec.role, email: rec.email || business.email, memberId: rec.memberId, isOwner: !rec.memberId };
+}
+
+export async function getSessionBusiness(token: string | undefined): Promise<Business | undefined> {
+  return (await getSessionActor(token))?.business;
 }
 
 export async function destroySession(token: string | undefined): Promise<void> {
@@ -352,6 +411,7 @@ export async function createConversation(input: {
   channel: Channel;
   visitorName?: string;
   visitorContact?: string;
+  visitorMeta?: VisitorMeta;
   firstMessage: Omit<Message, "id" | "at">;
 }): Promise<Conversation> {
   const now = Date.now();
@@ -363,6 +423,7 @@ export async function createConversation(input: {
     visitorContact: input.visitorContact,
     visitorKey: uid("vk_"),
     unread: true,
+    visitorMeta: input.visitorMeta,
     createdAt: now,
     updatedAt: now,
     messages: [{ ...input.firstMessage, id: uid("m_"), at: now }],
@@ -372,6 +433,7 @@ export async function createConversation(input: {
       id: conv.id, business_id: conv.businessId, channel: conv.channel,
       visitor_name: conv.visitorName ?? null, visitor_contact: conv.visitorContact ?? null,
       visitor_key: conv.visitorKey, unread: true, messages: conv.messages,
+      visitor_meta: conv.visitorMeta ?? null,
       created_at: now, updated_at: now,
     });
   } else {
@@ -429,6 +491,29 @@ export async function markRead(conversationId: string): Promise<void> {
   }
   const conv = mem().conversations.get(conversationId);
   if (conv) conv.unread = false;
+}
+
+/** Owner edits a conversation's customer name and/or category tag. */
+export async function updateConversationMeta(
+  id: string,
+  patch: { visitorName?: string; tag?: ConversationTag }
+): Promise<Conversation | undefined> {
+  const conv = await getConversation(id);
+  if (!conv) return undefined;
+  const updated: Conversation = {
+    ...conv,
+    visitorName: patch.visitorName !== undefined ? patch.visitorName : conv.visitorName,
+    tag: patch.tag !== undefined ? patch.tag : conv.tag,
+  };
+  if (supabaseEnabled) {
+    const row: Record<string, unknown> = {};
+    if (patch.visitorName !== undefined) row.visitor_name = patch.visitorName || null;
+    if (patch.tag !== undefined) row.tag = patch.tag;
+    await sbUpdate("conversations", `id=eq.${encodeURIComponent(id)}`, row);
+  } else {
+    mem().conversations.set(id, updated);
+  }
+  return updated;
 }
 
 // --------------------------------------------------------- virtual numbers
@@ -654,6 +739,10 @@ export async function updateEngagement(
 
 type SvRow = {
   id: string; business_id: string; business_name: string; website: string; address: string;
+  address_street: string | null; address_street2: string | null; address_city: string | null;
+  address_state: string | null; address_postal: string | null; address_country: string | null;
+  business_type: string | null; registration_number: string | null;
+  registration_authority: string | null; registration_country: string | null;
   contact_name: string; contact_email: string; contact_phone: string; toll_free_number: string;
   use_case: SmsVerification["useCase"]; use_case_summary: string; sample_message: string;
   opt_in_type: SmsVerification["optInType"]; opt_in_details: string; opt_in_image_url: string;
@@ -665,7 +754,15 @@ type SvRow = {
 function rowToSv(r: SvRow): SmsVerification {
   return {
     id: r.id, businessId: r.business_id, businessName: r.business_name, website: r.website,
-    address: r.address, contactName: r.contact_name, contactEmail: r.contact_email,
+    address: r.address,
+    addressStreet: r.address_street ?? "", addressStreet2: r.address_street2 ?? "",
+    addressCity: r.address_city ?? "", addressState: r.address_state ?? "",
+    addressPostal: r.address_postal ?? "", addressCountry: r.address_country ?? "",
+    businessType: (r.business_type ?? "") as SmsVerification["businessType"],
+    registrationNumber: r.registration_number ?? "",
+    registrationAuthority: (r.registration_authority ?? "") as SmsVerification["registrationAuthority"],
+    registrationCountry: r.registration_country ?? "",
+    contactName: r.contact_name, contactEmail: r.contact_email,
     contactPhone: r.contact_phone, tollFreeNumber: r.toll_free_number, useCase: r.use_case,
     useCaseSummary: r.use_case_summary, sampleMessage: r.sample_message, optInType: r.opt_in_type,
     optInDetails: r.opt_in_details, optInImageUrl: r.opt_in_image_url ?? "",
@@ -681,7 +778,13 @@ function rowToSv(r: SvRow): SmsVerification {
 function svToRow(v: SmsVerification): SvRow {
   return {
     id: v.id, business_id: v.businessId, business_name: v.businessName, website: v.website,
-    address: v.address, contact_name: v.contactName, contact_email: v.contactEmail,
+    address: v.address,
+    address_street: v.addressStreet || null, address_street2: v.addressStreet2 || null,
+    address_city: v.addressCity || null, address_state: v.addressState || null,
+    address_postal: v.addressPostal || null, address_country: v.addressCountry || null,
+    business_type: v.businessType || null, registration_number: v.registrationNumber || null,
+    registration_authority: v.registrationAuthority || null, registration_country: v.registrationCountry || null,
+    contact_name: v.contactName, contact_email: v.contactEmail,
     contact_phone: v.contactPhone, toll_free_number: v.tollFreeNumber, use_case: v.useCase,
     use_case_summary: v.useCaseSummary, sample_message: v.sampleMessage, opt_in_type: v.optInType,
     opt_in_details: v.optInDetails, opt_in_image_url: v.optInImageUrl,
@@ -703,7 +806,10 @@ export async function getSmsVerification(businessId: string): Promise<SmsVerific
 
 export type SmsVerificationInput = Pick<
   SmsVerification,
-  | "businessName" | "website" | "address" | "contactName" | "contactEmail" | "contactPhone"
+  | "businessName" | "website" | "address"
+  | "addressStreet" | "addressStreet2" | "addressCity" | "addressState" | "addressPostal" | "addressCountry"
+  | "businessType" | "registrationNumber" | "registrationAuthority" | "registrationCountry"
+  | "contactName" | "contactEmail" | "contactPhone"
   | "tollFreeNumber" | "useCase" | "useCaseSummary" | "sampleMessage"
   | "optInType" | "optInDetails" | "optInImageUrl" | "monthlyVolume"
 >;
@@ -818,6 +924,269 @@ export async function deleteOptinUpload(id: string): Promise<void> {
   } else {
     mem().optinUploads.delete(id);
   }
+}
+
+// ------------------------------------------------------- calendar accounts
+
+type CalRow = {
+  business_id: string; provider: "google"; email: string; calendar_id: string;
+  refresh_token: string; access_token: string | null; token_expiry: number | null;
+  slot_minutes: number; days: string; start_hour: number; end_hour: number;
+  tz_offset_minutes: number; created_at: number; updated_at: number;
+};
+
+function rowToCal(r: CalRow): CalendarAccount {
+  return {
+    businessId: r.business_id, provider: r.provider, email: r.email, calendarId: r.calendar_id,
+    refreshToken: r.refresh_token, accessToken: r.access_token ?? undefined,
+    tokenExpiry: r.token_expiry != null ? Number(r.token_expiry) : undefined,
+    slotMinutes: r.slot_minutes, days: String(r.days).split(",").filter(Boolean).map(Number),
+    startHour: r.start_hour, endHour: r.end_hour, tzOffsetMinutes: r.tz_offset_minutes,
+    createdAt: Number(r.created_at), updatedAt: Number(r.updated_at),
+  };
+}
+
+function calToRow(c: CalendarAccount): CalRow {
+  return {
+    business_id: c.businessId, provider: c.provider, email: c.email, calendar_id: c.calendarId,
+    refresh_token: c.refreshToken, access_token: c.accessToken ?? null,
+    token_expiry: c.tokenExpiry ?? null, slot_minutes: c.slotMinutes, days: c.days.join(","),
+    start_hour: c.startHour, end_hour: c.endHour, tz_offset_minutes: c.tzOffsetMinutes,
+    created_at: c.createdAt, updated_at: c.updatedAt,
+  };
+}
+
+export async function getCalendarAccount(businessId: string): Promise<CalendarAccount | undefined> {
+  if (supabaseEnabled) {
+    const rows = await sbSelect<CalRow>("calendar_accounts", `business_id=eq.${encodeURIComponent(businessId)}&limit=1`);
+    return rows[0] ? rowToCal(rows[0]) : undefined;
+  }
+  return mem().calendarAccounts.get(businessId);
+}
+
+export async function upsertCalendarAccount(input: Omit<CalendarAccount, "createdAt" | "updatedAt">): Promise<CalendarAccount> {
+  const existing = await getCalendarAccount(input.businessId);
+  const now = Date.now();
+  const account: CalendarAccount = { ...input, createdAt: existing?.createdAt ?? now, updatedAt: now };
+  if (supabaseEnabled) {
+    if (existing) {
+      await sbUpdate("calendar_accounts", `business_id=eq.${encodeURIComponent(input.businessId)}`, calToRow(account));
+    } else {
+      await sbInsert("calendar_accounts", calToRow(account));
+    }
+  } else {
+    mem().calendarAccounts.set(account.businessId, account);
+  }
+  return account;
+}
+
+export async function deleteCalendarAccount(businessId: string): Promise<void> {
+  if (supabaseEnabled) {
+    await sbDelete("calendar_accounts", `business_id=eq.${encodeURIComponent(businessId)}`);
+  } else {
+    mem().calendarAccounts.delete(businessId);
+  }
+}
+
+// -------------------------------------------------------------- lead tags
+
+type LeadTagRow = {
+  business_id: string; contact_key: string; tag: LeadTag; note: string | null; name: string | null; updated_at: number;
+};
+
+function rowToLeadTag(r: LeadTagRow): LeadTagRecord {
+  return { businessId: r.business_id, contactKey: r.contact_key, tag: r.tag, note: r.note ?? undefined, name: r.name ?? undefined, updatedAt: Number(r.updated_at) };
+}
+
+export async function listLeadTags(businessId: string): Promise<LeadTagRecord[]> {
+  if (supabaseEnabled) {
+    const rows = await sbSelect<LeadTagRow>("lead_tags", `business_id=eq.${encodeURIComponent(businessId)}`);
+    return rows.map(rowToLeadTag);
+  }
+  return [...mem().leadTags.values()].filter((t) => t.businessId === businessId);
+}
+
+export async function upsertLeadTag(
+  businessId: string,
+  contactKey: string,
+  patch: { tag?: LeadTag; note?: string; name?: string }
+): Promise<LeadTagRecord> {
+  const existing =
+    (await listLeadTags(businessId)).find((t) => t.contactKey === contactKey) ?? undefined;
+  const record: LeadTagRecord = {
+    businessId,
+    contactKey,
+    tag: patch.tag ?? existing?.tag ?? "none",
+    note: patch.note !== undefined ? patch.note : existing?.note,
+    name: patch.name !== undefined ? patch.name : existing?.name,
+    updatedAt: Date.now(),
+  };
+  if (supabaseEnabled) {
+    const row = {
+      business_id: record.businessId, contact_key: record.contactKey,
+      tag: record.tag, note: record.note ?? null, name: record.name ?? null, updated_at: record.updatedAt,
+    };
+    if (existing) {
+      await sbUpdate(
+        "lead_tags",
+        `business_id=eq.${encodeURIComponent(businessId)}&contact_key=eq.${encodeURIComponent(contactKey)}`,
+        row
+      );
+    } else {
+      await sbInsert("lead_tags", row);
+    }
+  } else {
+    mem().leadTags.set(`${businessId}:${contactKey}`, record);
+  }
+  return record;
+}
+
+// ------------------------------------------------------------- team members
+
+type TeamRow = {
+  id: string; business_id: string; email: string; role: TeamRole;
+  status: TeamMember["status"]; invited_by_name: string | null; token: string;
+  invited_at: number; accepted_at: number | null;
+};
+
+function rowToMember(r: TeamRow): TeamMember {
+  return {
+    id: r.id, businessId: r.business_id, email: r.email, role: r.role, status: r.status,
+    invitedByName: r.invited_by_name ?? undefined, token: r.token,
+    invitedAt: Number(r.invited_at), acceptedAt: r.accepted_at != null ? Number(r.accepted_at) : undefined,
+  };
+}
+
+function memberToRow(m: TeamMember): TeamRow {
+  return {
+    id: m.id, business_id: m.businessId, email: m.email, role: m.role, status: m.status,
+    invited_by_name: m.invitedByName ?? null, token: m.token,
+    invited_at: m.invitedAt, accepted_at: m.acceptedAt ?? null,
+  };
+}
+
+/** All teammates invited to a business, newest first. */
+export async function listTeamMembers(businessId: string): Promise<TeamMember[]> {
+  if (supabaseEnabled) {
+    const rows = await sbSelect<TeamRow>("team_members", `business_id=eq.${encodeURIComponent(businessId)}&order=invited_at.desc`);
+    return rows.map(rowToMember);
+  }
+  return [...mem().teamMembers.values()]
+    .filter((m) => m.businessId === businessId)
+    .sort((a, b) => b.invitedAt - a.invitedAt);
+}
+
+/** Find a team membership by email across all businesses (emails are unique). */
+export async function getTeamMemberByEmail(email: string): Promise<TeamMember | undefined> {
+  const e = email.trim().toLowerCase();
+  if (supabaseEnabled) {
+    const rows = await sbSelect<TeamRow>("team_members", `email=eq.${encodeURIComponent(e)}&limit=1`);
+    return rows[0] ? rowToMember(rows[0]) : undefined;
+  }
+  return [...mem().teamMembers.values()].find((m) => m.email === e);
+}
+
+export async function getTeamMemberByToken(token: string): Promise<TeamMember | undefined> {
+  if (supabaseEnabled) {
+    const rows = await sbSelect<TeamRow>("team_members", `token=eq.${encodeURIComponent(token)}&limit=1`);
+    return rows[0] ? rowToMember(rows[0]) : undefined;
+  }
+  return [...mem().teamMembers.values()].find((m) => m.token === token);
+}
+
+export async function getTeamMember(id: string): Promise<TeamMember | undefined> {
+  if (supabaseEnabled) {
+    const rows = await sbSelect<TeamRow>("team_members", `id=eq.${encodeURIComponent(id)}&limit=1`);
+    return rows[0] ? rowToMember(rows[0]) : undefined;
+  }
+  return mem().teamMembers.get(id);
+}
+
+/**
+ * Invite a teammate. If the email was already invited to this business, the
+ * invite is refreshed (new token) so the link can be re-sent. Returns the
+ * member record, or an error when the email already owns/belongs elsewhere.
+ */
+export async function createInvite(input: {
+  businessId: string;
+  email: string;
+  role: TeamRole;
+  invitedByName?: string;
+}): Promise<TeamMember | { error: string }> {
+  const email = input.email.trim().toLowerCase();
+  if (!/^\S+@\S+\.\S+$/.test(email)) return { error: "Enter a valid email address." };
+
+  // Can't invite an email that already owns a Haylio account.
+  if (await getBusinessByEmail(email)) {
+    return { error: "That email already owns a Haylio account." };
+  }
+
+  const existing = await getTeamMemberByEmail(email);
+  if (existing && existing.businessId !== input.businessId) {
+    return { error: "That email already belongs to another team." };
+  }
+
+  const token = uid("inv_");
+  if (existing) {
+    // Refresh the invite (re-send): new token, reset to invited if needed.
+    const refreshed: TeamMember = {
+      ...existing,
+      role: input.role,
+      token,
+      status: existing.status === "active" ? "active" : "invited",
+      invitedByName: input.invitedByName ?? existing.invitedByName,
+      invitedAt: Date.now(),
+    };
+    if (supabaseEnabled) {
+      await sbUpdate("team_members", `id=eq.${encodeURIComponent(refreshed.id)}`, memberToRow(refreshed));
+    } else {
+      mem().teamMembers.set(refreshed.id, refreshed);
+    }
+    return refreshed;
+  }
+
+  const member: TeamMember = {
+    id: uid("mem_"),
+    businessId: input.businessId,
+    email,
+    role: input.role,
+    status: "invited",
+    invitedByName: input.invitedByName,
+    token,
+    invitedAt: Date.now(),
+  };
+  if (supabaseEnabled) {
+    await sbInsert("team_members", memberToRow(member));
+  } else {
+    mem().teamMembers.set(member.id, member);
+  }
+  return member;
+}
+
+/** Accept an invite by token. Idempotent — returns the member if already active. */
+export async function acceptInvite(token: string): Promise<TeamMember | undefined> {
+  const member = await getTeamMemberByToken(token);
+  if (!member) return undefined;
+  if (member.status === "active") return member;
+  const updated: TeamMember = { ...member, status: "active", acceptedAt: Date.now() };
+  if (supabaseEnabled) {
+    await sbUpdate("team_members", `id=eq.${encodeURIComponent(updated.id)}`, memberToRow(updated));
+  } else {
+    mem().teamMembers.set(updated.id, updated);
+  }
+  return updated;
+}
+
+/** Remove a teammate from a business (revokes their access). */
+export async function removeTeamMember(businessId: string, id: string): Promise<boolean> {
+  const member = await getTeamMember(id);
+  if (!member || member.businessId !== businessId) return false;
+  if (supabaseEnabled) {
+    await sbDelete("team_members", `id=eq.${encodeURIComponent(id)}`);
+  } else {
+    mem().teamMembers.delete(id);
+  }
+  return true;
 }
 
 /** Extract our upload id from a hosted opt-in URL (".../u/optin_xxx"); null if external. */

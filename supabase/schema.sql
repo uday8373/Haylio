@@ -41,6 +41,8 @@ create table public.conversations (
   visitor_key text not null,
   unread boolean not null default true,
   messages jsonb not null default '[]',
+  visitor_meta jsonb,
+  tag text not null default 'none',
   created_at bigint not null,
   updated_at bigint not null
 );
@@ -100,6 +102,16 @@ create table if not exists public.sms_verifications (
   business_name text not null default '',
   website text not null default '',
   address text not null default '',
+  address_street text,
+  address_street2 text,
+  address_city text,
+  address_state text,
+  address_postal text,
+  address_country text,
+  business_type text,
+  registration_number text,
+  registration_authority text,
+  registration_country text,
   contact_name text not null default '',
   contact_email text not null default '',
   contact_phone text not null default '',
@@ -131,10 +143,40 @@ create table if not exists public.optin_uploads (
 );
 create index if not exists optin_uploads_business_idx on public.optin_uploads (business_id);
 
+-- Connected calendars for appointment booking (Google OAuth tokens live here).
+create table if not exists public.calendar_accounts (
+  business_id text primary key references public.businesses(id) on delete cascade,
+  provider text not null default 'google',
+  email text not null default '',
+  calendar_id text not null default 'primary',
+  refresh_token text not null,
+  access_token text,
+  token_expiry bigint,
+  slot_minutes integer not null default 30,
+  days text not null default '1,2,3,4,5',
+  start_hour integer not null default 9,
+  end_hour integer not null default 17,
+  tz_offset_minutes integer not null default 0,
+  created_at bigint not null,
+  updated_at bigint not null
+);
+
+-- CRM lead tags/scoring overlay (leads are derived from conversations + engagements).
+create table if not exists public.lead_tags (
+  business_id text not null references public.businesses(id) on delete cascade,
+  contact_key text not null,
+  tag text not null default 'none',
+  note text,
+  name text,
+  updated_at bigint not null,
+  primary key (business_id, contact_key)
+);
+
 alter table public.virtual_numbers disable row level security;
 alter table public.engagements disable row level security;
 alter table public.sms_verifications disable row level security;
 alter table public.optin_uploads disable row level security;
+alter table public.lead_tags disable row level security;
 
 -- Prototype note: the app talks to these tables server-side with the anon key,
 -- so RLS is disabled. Before going to production, switch the server to the

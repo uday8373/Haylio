@@ -4,25 +4,6 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { BadgeCheckIcon, CheckIcon, ShieldCheckIcon } from "@/components/icons";
 
-declare global {
-  interface Window {
-    Cashfree?: (opts: { mode: "sandbox" | "production" }) => {
-      subscriptionsCheckout: (opts: { subscriptionSessionId: string; redirectTarget?: string }) => Promise<unknown>;
-    };
-  }
-}
-
-function loadCashfreeSdk(): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (window.Cashfree) return resolve();
-    const s = document.createElement("script");
-    s.src = "https://sdk.cashfree.com/js/v3/cashfree.js";
-    s.onload = () => resolve();
-    s.onerror = () => reject(new Error("Failed to load Cashfree SDK"));
-    document.head.appendChild(s);
-  });
-}
-
 export default function BillingClient({
   planName,
   priceUsd,
@@ -70,15 +51,11 @@ export default function BillingClient({
         router.refresh();
         return;
       }
-      if (!data.subscriptionSessionId) throw new Error("No checkout session returned.");
+      if (!data.approveUrl) throw new Error("No approval URL returned.");
 
-      await loadCashfreeSdk();
-      const cashfree = window.Cashfree!({ mode: data.mode === "production" ? "production" : "sandbox" });
-      await cashfree.subscriptionsCheckout({
-        subscriptionSessionId: data.subscriptionSessionId,
-        redirectTarget: "_self",
-      });
-      // On redirect flows the browser navigates away; nothing more to do here.
+      // Redirect to PayPal to authorize the subscription; PayPal returns to
+      // /dashboard/billing?subscription_id=… where we verify it.
+      window.location.href = data.approveUrl;
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong.");
       setBusy(false);
@@ -121,7 +98,7 @@ export default function BillingClient({
           ))}
         </ul>
         <p className="mt-6 text-[11px] text-[#a6a59c] flex items-center gap-1.5">
-          <ShieldCheckIcon size={13} /> Secure checkout by Cashfree. Cancel anytime. Card charged monthly.
+          <ShieldCheckIcon size={13} /> Secure checkout by PayPal. Cancel anytime. Billed monthly.
         </p>
       </div>
 
@@ -135,12 +112,12 @@ export default function BillingClient({
           <p className="mt-5 text-sm text-[#8a897f]">Confirming your payment…</p>
         ) : (
           <button onClick={subscribe} className="btn-primary w-full mt-5" disabled={busy}>
-            {busy ? "Opening checkout…" : "Subscribe & activate"}
+            {busy ? "Redirecting to PayPal…" : "Subscribe with PayPal"}
           </button>
         )}
         {error && <p className="mt-3 text-sm text-[#e8552f]">{error}</p>}
         <p className="mt-3 text-[11px] text-[#a6a59c]">
-          You'll authorize a recurring mandate on your card. Billed in your local currency.
+          You'll be redirected to PayPal to authorize the monthly subscription.
         </p>
       </aside>
     </div>

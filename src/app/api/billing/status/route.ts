@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { currentBusiness } from "@/lib/session";
 import { setBusinessPlan } from "@/lib/store";
-import { cashfreeEnabled, getSubscription } from "@/lib/cashfree";
+import { paypalEnabled, getSubscription } from "@/lib/paypal";
 
 /**
  * Return the current plan status. If a subscription is pending, refresh it from
- * Cashfree first and flip the business to active once the mandate is authorized.
+ * PayPal and flip the business to active once it's ACTIVE.
  */
 export async function GET(req: NextRequest) {
   const biz = await currentBusiness();
@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
   }
 
   const subId = new URL(req.url).searchParams.get("subscription_id") || biz.planSubscriptionId || undefined;
-  if (cashfreeEnabled && subId) {
+  if (paypalEnabled && subId) {
     try {
       const sub = await getSubscription(subId);
       if (sub?.status === "active") {

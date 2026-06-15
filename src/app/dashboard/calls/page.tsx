@@ -6,7 +6,7 @@ import { timeAgo } from "@/lib/ui";
 import { CheckIcon, ChevronRightIcon, MessageIcon, PhoneIcon, ShieldCheckIcon, TrendingUpIcon } from "@/components/icons";
 import { NumberCard, SimulateCall } from "@/components/dashboard/CallsClient";
 import { FORWARD_MINUTES_LIMIT, forwardMinutesUsed } from "@/lib/engagement";
-import { cashfreeEnabled } from "@/lib/cashfree";
+import { billingEnabled } from "@/lib/billing";
 import type { SmsStatus, SmsVerificationStatus } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -28,7 +28,7 @@ export default async function CallsPage() {
   const minutesUsed = vn ? await forwardMinutesUsed(biz.id) : 0;
   const verification = await getSmsVerification(biz.id);
   const verificationStatus: SmsVerificationStatus = verification?.status ?? "not_submitted";
-  const paywall = cashfreeEnabled && biz.planStatus !== "active";
+  const paywall = billingEnabled && biz.planStatus !== "active";
 
   const calls = engagements.length;
   const delivered = engagements.filter((e) => e.smsStatus === "delivered" || e.smsStatus === "sent").length;

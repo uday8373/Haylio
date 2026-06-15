@@ -2,22 +2,20 @@ import Link from "next/link";
 import { currentBusiness } from "@/lib/session";
 import { getNumberByBusiness, getSmsVerification, listConversations } from "@/lib/store";
 import { channelMeta, timeAgo } from "@/lib/ui";
-import SmsStatusBadges from "@/components/dashboard/SmsStatusBadges";
+import EnquiryTracker from "@/components/dashboard/EnquiryTracker";
+import { SendSupportLink } from "@/components/dashboard/CallsClient";
+import { baseUrl } from "@/lib/telephony";
 import type { SmsVerificationStatus } from "@/lib/types";
 import {
   CalendarIcon,
   ChannelIcon,
   ChevronDownIcon,
-  ChevronRightIcon,
   ChevronUpIcon,
   ClockIcon,
-  PhoneIcon,
   PlusIcon,
 } from "@/components/icons";
 
 export const dynamic = "force-dynamic";
-
-const DAY = 24 * 60 * 60 * 1000;
 
 export default async function Overview() {
   const biz = (await currentBusiness())!;
@@ -26,22 +24,8 @@ export default async function Overview() {
   const verification = await getSmsVerification(biz.id);
   const verificationStatus: SmsVerificationStatus = verification?.status ?? "not_submitted";
 
-  // ---- Enquiry tracker: last 7 days ----
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const days = Array.from({ length: 7 }, (_, i) => {
-    const start = today.getTime() - (6 - i) * DAY;
-    const count = convos.filter((c) => c.createdAt >= start && c.createdAt < start + DAY).length;
-    return { label: "SMTWTFS"[new Date(start).getDay()], count, start };
-  });
-  const maxCount = Math.max(1, ...days.map((d) => d.count));
-  const peakIdx = days.reduce((best, d, i) => (d.count > days[best].count ? i : best), 0);
-
-  const thisWeek = convos.filter((c) => c.createdAt >= today.getTime() - 6 * DAY).length;
-  const prevWeek = convos.filter(
-    (c) => c.createdAt >= today.getTime() - 13 * DAY && c.createdAt < today.getTime() - 6 * DAY
-  ).length;
-  const delta = prevWeek === 0 ? (thisWeek > 0 ? 100 : 0) : Math.round(((thisWeek - prevWeek) / prevWeek) * 100);
+  // ---- Enquiry tracker: all createdAt timestamps (aggregated client-side per range) ----
+  const enquiryTimestamps = convos.map((c) => c.createdAt);
 
   // ---- KPIs ----
   const aiAnswered = convos.filter((c) => c.channel === "chat").length;
@@ -69,88 +53,11 @@ export default async function Overview() {
   return (
     <div className="grid md:grid-cols-12 gap-5">
       {/* ============ Enquiry tracker ============ */}
-      <section className="card md:col-span-7 p-5 md:p-7 relative min-w-0">
-        <div className="flex items-start justify-between flex-wrap gap-3">
-          <div className="min-w-0">
-            <Link href="/dashboard/calls" className="group flex items-center gap-3">
-              <span className="w-9 h-9 rounded-xl bg-[#21201a] text-white flex items-center justify-center shrink-0">
-                <PhoneIcon size={16} />
-              </span>
-              {vn ? (
-                <span className="min-w-0">
-                  <span className="block text-[10px] font-semibold tracking-wide text-[#8a897f] uppercase">
-                    Your toll-free number
-                  </span>
-                  <span className="flex items-center gap-2 text-2xl md:text-3xl font-semibold tracking-tight font-mono group-hover:text-[#e8552f] transition">
-                    {vn.phoneNumber}
-                    <ChevronRightIcon size={20} className="text-[#c9c9c3] group-hover:text-[#e8552f] group-hover:translate-x-1 transition" />
-                  </span>
-                </span>
-              ) : (
-                <span className="min-w-0">
-                  <span className="block text-[10px] font-semibold tracking-wide text-[#8a897f] uppercase">
-                    Privacy Wrapper
-                  </span>
-                  <span className="flex items-center gap-2 text-2xl md:text-3xl font-semibold tracking-tight text-[#e8552f]">
-                    Get your toll-free number
-                    <ChevronRightIcon size={20} className="group-hover:translate-x-1 transition" />
-                  </span>
-                </span>
-              )}
-            </Link>
-            {vn && <SmsStatusBadges status={verificationStatus} className="mt-3" />}
-            <p className="mt-3 text-xs text-[#8a897f] max-w-xs leading-relaxed">
-              {vn
-                ? "Put it on Google instead of your mobile — every call, SMS and click is tracked in the Calls tab."
-                : "Replace your mobile number on Google with a number that greets callers and texts them your link."}
-            </p>
-          </div>
-          <span className="btn-secondary !rounded-full !py-2 !px-4 !text-xs">
-            Week <ChevronDownIcon size={13} />
-          </span>
-        </div>
-
-        <div className="mt-6 flex flex-col md:flex-row md:items-end gap-6">
-          <div className="shrink-0 md:pb-6 flex md:block items-baseline gap-4">
-            <p className="text-4xl md:text-5xl font-semibold tracking-tight">{delta >= 0 ? "+" : ""}{delta}%</p>
-            <p className="md:mt-2 text-xs text-[#8a897f] max-w-[160px] md:max-w-[120px]">
-              This week's enquiries vs last week's
-            </p>
-          </div>
-
-          {/* Lollipop chart */}
-          <div className="flex-1 flex items-end justify-between gap-1 md:gap-2 h-52 min-w-0">
-            {days.map((d, i) => {
-              const h = 24 + (d.count / maxCount) * 130;
-              const peak = i === peakIdx && d.count > 0;
-              return (
-                <div key={i} className="flex flex-col items-center gap-0 flex-1">
-                  {peak && (
-                    <span className="mb-2 pill-dark !text-[11px] !px-3 !py-1.5 animate-scale-in whitespace-nowrap">
-                      {d.count}<span className="hidden md:inline"> enquir{d.count === 1 ? "y" : "ies"}</span>
-                    </span>
-                  )}
-                  <span
-                    className={`w-2 h-2 rounded-full ${peak ? "bg-[#21201a]" : "bg-[#7c97c9]"}`}
-                    style={{ marginBottom: -1 }}
-                  />
-                  <span
-                    className={`w-px ${peak ? "bg-[#21201a]" : "bg-[#d8d8d3]"}`}
-                    style={{ height: h }}
-                  />
-                  <span
-                    className={`mt-3 w-7 h-7 md:w-9 md:h-9 rounded-full flex items-center justify-center text-xs font-semibold ${
-                      peak ? "bg-[#21201a] text-white" : "bg-[#f1f1ee] text-[#6b6a60]"
-                    }`}
-                  >
-                    {d.label}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </section>
+      <EnquiryTracker
+        phoneNumber={vn?.phoneNumber ?? null}
+        verificationStatus={verificationStatus}
+        timestamps={enquiryTimestamps}
+      />
 
       {/* ============ Recent enquiries ============ */}
       <section className="md:col-span-5 md:row-span-2 min-w-0">
@@ -164,10 +71,10 @@ export default async function Overview() {
         <div className="mt-4 space-y-3">
           {convos.length === 0 && (
             <div className="card p-6 text-sm text-[#8a897f]">
-              Nothing yet — share your link (see the <Link href="/dashboard/share" className="underline">Share</Link> page) to start receiving enquiries.
+              Nothing yet — share your link (see the <Link href="/dashboard/business" className="underline">Business</Link> page) to start receiving enquiries.
             </div>
           )}
-          {convos.slice(0, 4).map((c, i) => {
+          {convos.slice(0, 1).map((c, i) => {
             const last = c.messages[c.messages.length - 1];
             const expanded = i === 0;
             return (
@@ -215,6 +122,11 @@ export default async function Overview() {
               </Link>
             );
           })}
+        </div>
+
+        {/* Send support link — right column, below recent enquiries */}
+        <div className="mt-5">
+          <SendSupportLink hasNumber={Boolean(vn)} businessName={biz.name} supportLink={`${baseUrl()}/b/${biz.handle}`} />
         </div>
       </section>
 

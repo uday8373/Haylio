@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ZapIcon } from "@/components/icons";
 
 export default function LoginPage() {
@@ -14,6 +14,15 @@ export default function LoginPage() {
   const [resent, setResent] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [invited, setInvited] = useState(false);
+
+  // Prefill from the invite-accept redirect (?email=…&invited=1).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const e = params.get("email");
+    if (e) setEmail(e);
+    if (params.get("invited") === "1") setInvited(true);
+  }, []);
 
   async function sendCode(e: React.FormEvent) {
     e.preventDefault();
@@ -79,8 +88,12 @@ export default function LoginPage() {
 
         {step === "email" ? (
           <>
-            <h1 className="mt-7 text-3xl font-semibold tracking-tight">Welcome back</h1>
-            <p className="text-sm text-[#8a897f] mt-2">Enter your email and we'll send you a 6-digit code.</p>
+            <h1 className="mt-7 text-3xl font-semibold tracking-tight">{invited ? "Invitation accepted" : "Welcome back"}</h1>
+            <p className="text-sm text-[#8a897f] mt-2">
+              {invited
+                ? "You're all set. Log in with your email and we'll send you a 6-digit code."
+                : "Enter your email and we'll send you a 6-digit code."}
+            </p>
             <form onSubmit={sendCode} className="mt-7 space-y-4">
               <div>
                 <label className="label">Email</label>

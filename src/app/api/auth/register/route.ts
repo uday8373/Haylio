@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createBusiness, createSession } from "@/lib/store";
+import { createBusiness, createSession, getTeamMemberByEmail } from "@/lib/store";
 import { SESSION_COOKIE } from "@/lib/session";
 import { verifyEmailOtp } from "@/lib/emailAuth";
 
@@ -8,6 +8,14 @@ export async function POST(req: NextRequest) {
   const { name, email, otp, handle, category, place } = body ?? {};
   if (!email || !handle) {
     return NextResponse.json({ error: "All fields are required." }, { status: 400 });
+  }
+
+  // An invited/accepted teammate email can't be used to open a new account.
+  if (await getTeamMemberByEmail(String(email))) {
+    return NextResponse.json(
+      { error: "This email was invited to a team. Accept your invitation and log in instead." },
+      { status: 409 }
+    );
   }
 
   // Verify the email OTP before creating any account.
@@ -39,8 +47,13 @@ export async function POST(req: NextRequest) {
   if ("error" in result) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }
-  const token = await createSession(result.id);
+  const token = await createSession(result.id, { role: "admin", email: result.email });
   const res = NextResponse.json({ ok: true, handle: result.handle, verified: result.verified });
-  res.cookies.set(SESSION_COOKIE, token, { httpOnly: true, sameSite: "lax", path: "/" });
+  res.cookies.set(SESSION_COOKIE, token, {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+    maxAge: 60 * 60 * 24 * 30, // 30 days — persists across browser restarts
+  });
   return res;
 }

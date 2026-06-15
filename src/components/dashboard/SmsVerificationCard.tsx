@@ -14,11 +14,21 @@ import type {
   SmsVerification,
   SmsVerificationStatus,
 } from "@/lib/types";
+import { US_CITIES, US_STATES } from "@/lib/usGeo";
 
 type FormState = {
   businessName: string;
   website: string;
-  address: string;
+  addressStreet: string;
+  addressStreet2: string;
+  addressCity: string;
+  addressState: string;
+  addressPostal: string;
+  addressCountry: string;
+  businessType: string;
+  registrationNumber: string;
+  registrationAuthority: string;
+  registrationCountry: string;
   contactName: string;
   contactEmail: string;
   contactPhone: string;
@@ -30,6 +40,35 @@ type FormState = {
   optInDetails: string;
   optInImageUrl: string;
   monthlyVolume: string;
+};
+
+const BUSINESS_TYPE_LABELS: Record<string, string> = {
+  PRIVATE_PROFIT: "Private (for-profit) company",
+  PUBLIC_PROFIT: "Public (for-profit) company",
+  NON_PROFIT: "Non-profit",
+  SOLE_PROPRIETOR: "Sole proprietor / individual",
+  GOVERNMENT: "Government",
+};
+
+const REG_AUTHORITY_LABELS: Record<string, string> = {
+  EIN: "EIN (US)",
+  CRN: "CRN (UK company number)",
+  CBN: "CBN (Canada)",
+  ABN: "ABN (Australia)",
+  ACN: "ACN (Australia)",
+  NZBN: "NZBN (New Zealand)",
+  VAT: "VAT number",
+  "USt-IdNr": "USt-IdNr (Germany)",
+  SIREN: "SIREN (France)",
+  SIRET: "SIRET (France)",
+  CIF: "CIF (Spain)",
+  NIF: "NIF (Portugal/Spain)",
+  CNPJ: "CNPJ (Brazil)",
+  BRN: "BRN",
+  PROVINCIAL_NUMBER: "Provincial number",
+  UID: "UID",
+  NEQ: "NEQ (Quebec)",
+  OTHER: "Other (e.g. India CIN/GST, etc.)",
 };
 
 const OPT_IN_LABELS: Record<OptInType, string> = {
@@ -66,9 +105,29 @@ const GUIDE: Record<string, { title: string; body: string }> = {
     title: "Website",
     body: "Your public website (optional but recommended). It helps the carrier confirm your business is real and lowers the chance of rejection.",
   },
-  address: {
-    title: "Business address",
-    body: "Your full registered address: street, city, state/province, postal code and country.",
+  addressStreet: {
+    title: "Street address",
+    body: "The street line of your registered business address. Carriers need each part of the address separately.",
+  },
+  addressCity: { title: "City", body: "Start typing to pick a US city. You can also type one that isn't listed." },
+  addressState: { title: "State", body: "Choose the US state of your business address." },
+  addressPostal: { title: "ZIP code", body: "US ZIP code, e.g. 90001." },
+  addressCountry: { title: "Country", body: "Fixed to the United States for toll-free verification." },
+  businessType: {
+    title: "Business type",
+    body: "Carriers require this. Sole proprietor/individual needs nothing further; companies, non-profits and government must add registration details.",
+  },
+  registrationNumber: {
+    title: "Registration number",
+    body: "Your official company/registration number — EIN (US), company number, or in India your CIN or GSTIN.",
+  },
+  registrationAuthority: {
+    title: "Registration authority",
+    body: "Who issued the number. If your country isn't listed (e.g. India), choose OTHER.",
+  },
+  registrationCountry: {
+    title: "Registration country",
+    body: "Two-letter ISO country code where the business is registered, e.g. IN for India, US for the United States.",
   },
   contactName: {
     title: "Authorized contact",
@@ -116,7 +175,16 @@ function emptyForm(d: Partial<FormState>): FormState {
   return {
     businessName: d.businessName ?? "",
     website: d.website ?? "",
-    address: d.address ?? "",
+    addressStreet: d.addressStreet ?? "",
+    addressStreet2: d.addressStreet2 ?? "",
+    addressCity: d.addressCity ?? "",
+    addressState: d.addressState ?? "",
+    addressPostal: d.addressPostal ?? "",
+    addressCountry: d.addressCountry || "US",
+    businessType: d.businessType ?? "",
+    registrationNumber: d.registrationNumber ?? "",
+    registrationAuthority: d.registrationAuthority ?? "",
+    registrationCountry: d.registrationCountry ?? "",
     contactName: d.contactName ?? "",
     contactEmail: d.contactEmail ?? "",
     contactPhone: d.contactPhone ?? "",
@@ -192,6 +260,7 @@ export default function SmsVerificationCard({
   // Opt-in screenshot upload
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [imageMode, setImageMode] = useState<"upload" | "url">("upload");
 
   async function uploadOptinImage(file: File) {
     if (!form) return;
@@ -266,10 +335,10 @@ export default function SmsVerificationCard({
     const data = await res.json();
     setBusy(false);
     if (!res.ok) {
-      // 502 = saved locally but Twilio rejected the submission.
-      setError(data.carrierError ? `Carrier error: ${data.carrierError}` : data.error ?? "Something went wrong.");
+      // Validation (422) or carrier rejection (502): show the message, highlight
+      // the field, and keep the form open — do NOT mark it under review.
+      setError(data.error ?? "Something went wrong.");
       setMissing(Array.isArray(data.missing) ? data.missing : []);
-      if (data.id) setRecord(data); // a 502 still returns the saved (pending) record
       return;
     }
     setRecord(data);
@@ -422,15 +491,135 @@ export default function SmsVerificationCard({
                 </div>
               </div>
               <div className="mt-4">
-                <label className="label">Business address *</label>
+                <label className="label">Street address *</label>
                 <input
-                  data-guide="address"
-                  className={`input ${isMissing("address") ? "!border-[#e8552f]" : ""}`}
-                  placeholder="Street, city, state, ZIP, country"
-                  value={form.address}
-                  onChange={(e) => set("address", e.target.value)}
+                  data-guide="addressStreet"
+                  className={`input ${isMissing("addressStreet") ? "!border-[#e8552f]" : ""}`}
+                  placeholder="Street address"
+                  value={form.addressStreet}
+                  onChange={(e) => set("addressStreet", e.target.value)}
                 />
               </div>
+              <div className="mt-3">
+                <input
+                  data-guide="addressStreet"
+                  className="input"
+                  placeholder="Apartment, suite, unit (optional)"
+                  value={form.addressStreet2}
+                  onChange={(e) => set("addressStreet2", e.target.value)}
+                />
+              </div>
+              <div className="mt-3 grid md:grid-cols-2 gap-4">
+                <div>
+                  <label className="label">City *</label>
+                  <input
+                    data-guide="addressCity"
+                    list="us-cities"
+                    className={`input ${isMissing("addressCity") ? "!border-[#e8552f]" : ""}`}
+                    placeholder="Start typing a US city…"
+                    value={form.addressCity}
+                    onChange={(e) => set("addressCity", e.target.value)}
+                  />
+                  <datalist id="us-cities">
+                    {US_CITIES.map((c) => <option key={c} value={c} />)}
+                  </datalist>
+                </div>
+                <div>
+                  <label className="label">State *</label>
+                  <select
+                    data-guide="addressState"
+                    className={`input ${isMissing("addressState") ? "!border-[#e8552f]" : ""}`}
+                    value={form.addressState}
+                    onChange={(e) => set("addressState", e.target.value)}
+                  >
+                    <option value="">Select a state…</option>
+                    {US_STATES.map((s) => (
+                      <option key={s.code} value={s.code}>{s.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">ZIP code *</label>
+                  <input
+                    data-guide="addressPostal"
+                    className={`input ${isMissing("addressPostal") ? "!border-[#e8552f]" : ""}`}
+                    placeholder="e.g. 90001"
+                    value={form.addressPostal}
+                    onChange={(e) => set("addressPostal", e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="label">Country</label>
+                  <input
+                    className="input !bg-[#f3f3ef] !text-[#8a897f] cursor-not-allowed"
+                    value="United States (US)"
+                    readOnly
+                  />
+                </div>
+              </div>
+              <div className="mt-4 grid md:grid-cols-2 gap-4">
+                <div>
+                  <label className="label">Business type *</label>
+                  <select
+                    data-guide="businessType"
+                    className={`input ${isMissing("businessType") ? "!border-[#e8552f]" : ""}`}
+                    value={form.businessType}
+                    onChange={(e) => set("businessType", e.target.value)}
+                  >
+                    <option value="">Select…</option>
+                    {Object.keys(BUSINESS_TYPE_LABELS).map((k) => (
+                      <option key={k} value={k}>{BUSINESS_TYPE_LABELS[k]}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Registration — required unless sole proprietor */}
+              {form.businessType && form.businessType !== "SOLE_PROPRIETOR" && (
+                <div className="mt-4 grid md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="label">Registration number *</label>
+                    <input
+                      data-guide="registrationNumber"
+                      className={`input ${isMissing("registrationNumber") ? "!border-[#e8552f]" : ""}`}
+                      placeholder="e.g. CIN / EIN / company no."
+                      value={form.registrationNumber}
+                      onChange={(e) => set("registrationNumber", e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="label">Registration authority *</label>
+                    <select
+                      data-guide="registrationAuthority"
+                      className={`input ${isMissing("registrationAuthority") ? "!border-[#e8552f]" : ""}`}
+                      value={form.registrationAuthority}
+                      onChange={(e) => set("registrationAuthority", e.target.value)}
+                    >
+                      <option value="">Select…</option>
+                      {Object.keys(REG_AUTHORITY_LABELS).map((k) => (
+                        <option key={k} value={k}>{REG_AUTHORITY_LABELS[k]}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="label">Registration country *</label>
+                    <input
+                      data-guide="registrationCountry"
+                      className={`input ${isMissing("registrationCountry") ? "!border-[#e8552f]" : ""}`}
+                      placeholder="ISO code, e.g. IN, US"
+                      maxLength={2}
+                      value={form.registrationCountry}
+                      onChange={(e) => set("registrationCountry", e.target.value.toUpperCase().replace(/[^A-Z]/g, ""))}
+                    />
+                  </div>
+                </div>
+              )}
+              {form.businessType && form.businessType !== "SOLE_PROPRIETOR" && (
+                <p className="mt-2 text-[11px] text-[#a6a59c]">
+                  In India, pick authority <span className="font-semibold">OTHER</span> and enter your CIN or GSTIN, country <span className="font-mono">IN</span>.
+                  Not registered? Choose <span className="font-semibold">Sole proprietor</span> above.
+                </p>
+              )}
             </div>
 
             {/* Contact */}
@@ -560,59 +749,99 @@ export default function SmsVerificationCard({
                 />
               </div>
               <div className="mt-4" data-guide="optInImageUrl" tabIndex={-1}>
-                <label className="label">Opt-in proof screenshot *</label>
-                {form.optInImageUrl ? (
-                  <div
-                    className={`flex items-center gap-3 rounded-2xl border p-3 ${
-                      isMissing("optInImageUrl") ? "border-[#e8552f]" : "border-[#ebebe8] bg-[#fafaf8]"
-                    }`}
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={form.optInImageUrl}
-                      alt="Opt-in proof"
-                      className="w-14 h-14 rounded-lg object-cover border border-[#e8e8e4] bg-white"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-semibold text-[#232219]">Screenshot attached</p>
-                      <p className="text-[11px] text-[#a6a59c] truncate font-mono">{form.optInImageUrl}</p>
-                    </div>
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <label className="label !mb-0">Opt-in proof screenshot *</label>
+                  <div className="inline-flex rounded-full border border-[#e8e8e4] bg-white p-0.5 text-[11px] font-semibold">
                     <button
                       type="button"
-                      className="text-xs font-semibold text-[#e8552f] hover:text-[#c8431f] transition shrink-0"
-                      disabled={uploading}
-                      onClick={removeOptinImage}
+                      onClick={() => setImageMode("upload")}
+                      className={`px-3 py-1 rounded-full transition ${imageMode === "upload" ? "bg-[#21201a] text-white" : "text-[#6b6a60]"}`}
                     >
-                      Remove
+                      Upload
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setImageMode("url")}
+                      className={`px-3 py-1 rounded-full transition ${imageMode === "url" ? "bg-[#21201a] text-white" : "text-[#6b6a60]"}`}
+                    >
+                      Paste URL
                     </button>
                   </div>
-                ) : (
-                  <label
-                    className={`flex flex-col items-center justify-center gap-1 rounded-2xl border border-dashed p-5 cursor-pointer transition hover:bg-[#fafaf8] ${
-                      isMissing("optInImageUrl") ? "border-[#e8552f]" : "border-[#d8d8d3]"
-                    }`}
-                  >
-                    <input
-                      type="file"
-                      accept="image/png,image/jpeg,image/webp"
-                      className="sr-only"
-                      disabled={uploading}
-                      onChange={(e) => {
-                        const f = e.target.files?.[0];
-                        if (f) uploadOptinImage(f);
-                        e.target.value = "";
-                      }}
-                    />
-                    <span className="text-sm font-semibold text-[#4b4a42]">
-                      {uploading ? "Uploading…" : "Upload screenshot"}
-                    </span>
-                    <span className="text-[11px] text-[#a6a59c]">PNG, JPG or WebP · up to 5 MB</span>
-                  </label>
-                )}
+                </div>
+
+                <div className="mt-2">
+                  {imageMode === "url" ? (
+                    <>
+                      <input
+                        className={`input ${isMissing("optInImageUrl") ? "!border-[#e8552f]" : ""}`}
+                        placeholder="https://…/optin-screenshot.png"
+                        value={form.optInImageUrl}
+                        onChange={(e) => set("optInImageUrl", e.target.value.trim())}
+                      />
+                      {form.optInImageUrl && /^https?:\/\//i.test(form.optInImageUrl) && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={form.optInImageUrl}
+                          alt="Opt-in proof"
+                          className="mt-2 w-16 h-16 rounded-lg object-cover border border-[#e8e8e4] bg-white"
+                        />
+                      )}
+                    </>
+                  ) : form.optInImageUrl ? (
+                    <div
+                      className={`flex items-center gap-3 rounded-2xl border p-3 ${
+                        isMissing("optInImageUrl") ? "border-[#e8552f]" : "border-[#ebebe8] bg-[#fafaf8]"
+                      }`}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={form.optInImageUrl}
+                        alt="Opt-in proof"
+                        className="w-14 h-14 rounded-lg object-cover border border-[#e8e8e4] bg-white"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-[#232219]">Screenshot attached</p>
+                        <p className="text-[11px] text-[#a6a59c] truncate font-mono">{form.optInImageUrl}</p>
+                      </div>
+                      <button
+                        type="button"
+                        className="text-xs font-semibold text-[#e8552f] hover:text-[#c8431f] transition shrink-0"
+                        disabled={uploading}
+                        onClick={removeOptinImage}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ) : (
+                    <label
+                      className={`flex flex-col items-center justify-center gap-1 rounded-2xl border border-dashed p-5 cursor-pointer transition hover:bg-[#fafaf8] ${
+                        isMissing("optInImageUrl") ? "border-[#e8552f]" : "border-[#d8d8d3]"
+                      }`}
+                    >
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        className="sr-only"
+                        disabled={uploading}
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          if (f) uploadOptinImage(f);
+                          e.target.value = "";
+                        }}
+                      />
+                      <span className="text-sm font-semibold text-[#4b4a42]">
+                        {uploading ? "Uploading…" : "Upload screenshot"}
+                      </span>
+                      <span className="text-[11px] text-[#a6a59c]">PNG, JPG or WebP · up to 5 MB</span>
+                    </label>
+                  )}
+                </div>
+
                 {uploadError && <p className="mt-1.5 text-[11px] text-[#e8552f]">{uploadError}</p>}
                 <p className="mt-1.5 text-[11px] text-[#a6a59c]">
-                  Upload a screenshot/photo showing customers consenting. We host it on a temporary
-                  link for the carrier and delete it once verification finishes.
+                  {imageMode === "url"
+                    ? "Paste a public link to a screenshot/photo showing customers consenting."
+                    : "Upload a screenshot/photo showing customers consenting. We host it on a temporary link for the carrier and delete it once verification finishes."}
                 </p>
               </div>
             </div>

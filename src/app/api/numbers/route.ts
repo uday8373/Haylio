@@ -8,7 +8,7 @@ import {
   twilioEnabled,
 } from "@/lib/telephony";
 import { DEFAULT_GREETING, DEFAULT_SMS_TEMPLATE, FORWARD_MINUTES_LIMIT, forwardMinutesUsed } from "@/lib/engagement";
-import { cashfreeEnabled } from "@/lib/cashfree";
+import { billingEnabled } from "@/lib/billing";
 
 /** Current business's virtual number (or null). */
 export async function GET() {
@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
   if (!biz) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   // Paywall: a paid plan is required before provisioning a number.
-  if (cashfreeEnabled && biz.planStatus !== "active") {
+  if (billingEnabled && biz.planStatus !== "active") {
     return NextResponse.json(
       { error: "Subscribe to activate your account before getting a number.", paywall: true },
       { status: 402 }

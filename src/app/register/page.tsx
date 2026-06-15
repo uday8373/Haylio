@@ -133,7 +133,7 @@ export default function RegisterPage() {
       }),
     });
     if (res.ok) {
-      router.push("/dashboard/profile?welcome=1");
+      router.push("/dashboard/business?welcome=1");
     } else {
       setError((await res.json()).error ?? "Registration failed");
       setBusy(false);

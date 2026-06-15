@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  confirmGatherTwiml,
   decideRouting,
+  DEFAULT_CONFIRM_GREETING,
+  DEFAULT_GREETING,
   forwardMinutesUsed,
   forwardTwiml,
-  handleIncomingCall,
   resolveVirtualNumber,
   startEngagement,
-  voiceTwiml,
 } from "@/lib/engagement";
+import { getBusiness } from "@/lib/store";
 import { baseUrl, validateTwilioSignature } from "@/lib/telephony";
 
 function xml(body: string, status = 200) {
@@ -41,6 +43,15 @@ export async function POST(req: NextRequest) {
     return xml(forwardTwiml(vn, engagement.id));
   }
 
-  const result = await handleIncomingCall(vn, from);
-  return xml(voiceTwiml(result.greeting));
+  // Otherwise: greet the caller and ask them to press 1 to receive the support
+  // link by text. The SMS is only sent once they confirm (see ./confirm).
+  const engagement = await startEngagement(vn, from);
+  const business = await getBusiness(vn.businessId);
+  const bizName = business?.name ?? "our team";
+  const greeting =
+    vn.greeting && vn.greeting !== DEFAULT_GREETING(bizName)
+      ? vn.greeting
+      : DEFAULT_CONFIRM_GREETING(bizName);
+  const action = `${baseUrl()}/api/twilio/voice/confirm?eng=${encodeURIComponent(engagement.id)}`;
+  return xml(confirmGatherTwiml(greeting, action));
 }

@@ -1,5 +1,5 @@
 import { currentBusiness } from "@/lib/session";
-import { PLAN_NAME, PLAN_PRICE_USD } from "@/lib/cashfree";
+import { PLAN_NAME, PLAN_PRICE_USD } from "@/lib/paypal";
 import BillingClient from "@/components/dashboard/BillingClient";
 
 export const dynamic = "force-dynamic";

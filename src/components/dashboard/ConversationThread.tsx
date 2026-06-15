@@ -41,7 +41,7 @@ export default function ConversationThread({ initial }: { initial: Conversation 
   }
 
   return (
-    <div className="mt-6">
+    <div>
       <div className="card p-5 space-y-3">
         {conv.messages.map((m, i) => (
           <div

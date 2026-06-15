@@ -2,15 +2,15 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 import { BellIcon, SearchIcon, SettingsIcon, ZapIcon } from "@/components/icons";
 
 const nav = [
   { href: "/dashboard", label: "Home" },
   { href: "/dashboard/inbox", label: "Inbox" },
+  { href: "/dashboard/leads", label: "Leads" },
   { href: "/dashboard/calls", label: "Calls" },
-  { href: "/dashboard/profile", label: "Profile" },
-  { href: "/dashboard/widget", label: "Widget" },
-  { href: "/dashboard/share", label: "Share" },
+  { href: "/dashboard/business", label: "Business" },
   { href: "/dashboard/billing", label: "Billing" },
 ];
 
@@ -25,8 +25,20 @@ export default function TopNav({
 }) {
   const pathname = usePathname();
   const router = useRouter();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onClick = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, [menuOpen]);
 
   async function logout() {
+    setMenuOpen(false);
     await fetch("/api/auth/logout", { method: "POST" });
     router.push("/");
     router.refresh();
@@ -84,14 +96,39 @@ export default function TopNav({
             </span>
           )}
         </Link>
-        <button onClick={logout} title={`${businessName} — log out`} className="w-10 h-10 rounded-full overflow-hidden border border-[#e8e8e4] bg-[#21201a] text-white text-sm font-bold flex items-center justify-center hover:opacity-85 transition">
-          {logoUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={logoUrl} alt={businessName} className="w-full h-full object-cover" />
-          ) : (
-            businessName.charAt(0)
+        <div className="relative" ref={menuRef}>
+          <button
+            onClick={() => setMenuOpen((o) => !o)}
+            title={businessName}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            className="w-10 h-10 rounded-full overflow-hidden border border-[#e8e8e4] bg-[#21201a] text-white text-sm font-bold flex items-center justify-center hover:opacity-85 transition"
+          >
+            {logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={logoUrl} alt={businessName} className="w-full h-full object-cover" />
+            ) : (
+              businessName.charAt(0)
+            )}
+          </button>
+          {menuOpen && (
+            <div
+              role="menu"
+              className="absolute right-0 z-30 mt-2 w-48 rounded-2xl border border-[#ececea] bg-white p-1.5 shadow-lg animate-scale-in"
+            >
+              <p className="px-3 py-2 text-xs text-[#8a897f] truncate border-b border-[#f0f0ec] mb-1">
+                Signed in as <span className="font-semibold text-[#232219]">{businessName}</span>
+              </p>
+              <button
+                role="menuitem"
+                onClick={logout}
+                className="w-full text-left rounded-xl px-3 py-2 text-sm font-medium text-[#e8552f] hover:bg-[#fdf0eb] transition"
+              >
+                Log out
+              </button>
+            </div>
           )}
-        </button>
+        </div>
       </div>
     </header>
   );

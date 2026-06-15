@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getBusinessByEmail } from "@/lib/store";
+import { getBusinessByEmail, getTeamMemberByEmail } from "@/lib/store";
 import { sendEmailOtp } from "@/lib/emailAuth";
 
 const EMAIL_RE = /^\S+@\S+\.\S+$/;
@@ -7,8 +7,8 @@ const EMAIL_RE = /^\S+@\S+\.\S+$/;
 /**
  * Send an email OTP for either signup ("register") or sign-in ("login").
  * The intent gates against our own accounts:
- *   register → email must NOT already have an account
- *   login    → email MUST already have an account
+ *   register → email must NOT already own an account or be an invited teammate
+ *   login    → email MUST own an account or be an accepted teammate
  */
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
@@ -20,11 +20,30 @@ export async function POST(req: NextRequest) {
   }
 
   const existing = await getBusinessByEmail(email);
-  if (intent === "register" && existing) {
-    return NextResponse.json({ error: "That email already has an account — log in instead." }, { status: 409 });
+  const member = await getTeamMemberByEmail(email);
+
+  if (intent === "register") {
+    if (existing) {
+      return NextResponse.json({ error: "That email already has an account — log in instead." }, { status: 409 });
+    }
+    if (member) {
+      return NextResponse.json(
+        { error: "This email was invited to a team. Accept your invitation, then log in." },
+        { status: 409 }
+      );
+    }
   }
-  if (intent === "login" && !existing) {
-    return NextResponse.json({ error: "No account found for that email — sign up first." }, { status: 404 });
+  if (intent === "login") {
+    const memberActive = member?.status === "active";
+    if (!existing && !memberActive) {
+      if (member) {
+        return NextResponse.json(
+          { error: "Accept your team invitation first, then log in with this email." },
+          { status: 403 }
+        );
+      }
+      return NextResponse.json({ error: "No account found for that email — sign up first." }, { status: 404 });
+    }
   }
 
   try {

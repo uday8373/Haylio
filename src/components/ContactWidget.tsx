@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { PublicBusiness } from "@/lib/types";
+import type { BookingSlot, PublicBusiness } from "@/lib/types";
+import { collectClientMeta } from "@/lib/visitorClient";
 import {
   ArrowUpIcon,
   ChannelIcon,
@@ -21,9 +22,15 @@ type Panel = "home" | "chat" | "message" | "voicemail" | "callback" | "done";
 interface ChatMsg {
   role: "visitor" | "ai";
   text: string;
+  slots?: BookingSlot[];
 }
 
-export default function ContactWidget({ business }: { business: PublicBusiness }) {
+interface Resume {
+  conversationId: string;
+  visitorKey: string;
+}
+
+export default function ContactWidget({ business, resume }: { business: PublicBusiness; resume?: Resume }) {
   const [panel, setPanel] = useState<Panel>("home");
   const [doneText, setDoneText] = useState("");
   const color = business.widget.themeColor || "#e8552f";
@@ -86,7 +93,7 @@ export default function ContactWidget({ business }: { business: PublicBusiness }
       <div className="p-5" key={panel}>
         {panel === "home" && <Home business={business} color={color} onPick={setPanel} />}
         {panel === "chat" && business.widget.channels.aiChat && (
-          <ChatPanel business={business} color={color} onBack={() => setPanel("home")} />
+          <ChatPanel business={business} color={color} onBack={() => setPanel("home")} resume={resume} />
         )}
         {panel === "message" && (
           <MessageForm
@@ -190,16 +197,35 @@ function BackBar({ title, onBack }: { title: string; onBack: () => void }) {
   );
 }
 
-function ChatPanel({ business, color, onBack }: { business: PublicBusiness; color: string; onBack: () => void }) {
+function ChatPanel({ business, color, onBack, resume }: { business: PublicBusiness; color: string; onBack: () => void; resume?: Resume }) {
   const [msgs, setMsgs] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [booking, setBooking] = useState(false);
+  const [booked, setBooked] = useState<string | null>(null);
+  const [loadingHistory, setLoadingHistory] = useState(Boolean(resume?.conversationId));
   const convRef = useRef<{ id?: string; key?: string }>({});
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [msgs, busy]);
+
+  // Resume the conversation identified by the visitor's token (cookie-derived).
+  // Fetches the persisted thread from the server so it survives reloads and
+  // shows any replies the business sent meanwhile.
+  useEffect(() => {
+    if (!resume?.conversationId) return;
+    convRef.current = { id: resume.conversationId, key: resume.visitorKey };
+    fetch(`/api/chat/history?conversationId=${encodeURIComponent(resume.conversationId)}&visitorKey=${encodeURIComponent(resume.visitorKey)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (Array.isArray(d?.messages)) setMsgs(d.messages);
+      })
+      .catch(() => {})
+      .finally(() => setLoadingHistory(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function send() {
     const text = input.trim();
@@ -216,12 +242,13 @@ function ChatPanel({ business, color, onBack }: { business: PublicBusiness; colo
           message: text,
           conversationId: convRef.current.id,
           visitorKey: convRef.current.key,
+          clientMeta: convRef.current.id ? undefined : collectClientMeta(),
         }),
       });
       const data = await res.json();
       if (res.ok) {
         convRef.current = { id: data.conversationId, key: data.visitorKey };
-        setMsgs((m) => [...m, { role: "ai", text: data.reply }]);
+        setMsgs((m) => [...m, { role: "ai", text: data.reply, slots: data.slots }]);
       } else {
         setMsgs((m) => [...m, { role: "ai", text: data.error ?? "Something went wrong — please try again." }]);
       }
@@ -232,11 +259,68 @@ function ChatPanel({ business, color, onBack }: { business: PublicBusiness; colo
     }
   }
 
+  async function bookSlot(slot: BookingSlot) {
+    if (booking) return;
+    setBooking(true);
+    try {
+      const res = await fetch("/api/booking/create", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          handle: business.handle,
+          startISO: slot.startISO,
+          endISO: slot.endISO,
+          label: slot.label,
+          conversationId: convRef.current.id,
+          visitorKey: convRef.current.key,
+        }),
+      });
+      if (res.ok) {
+        setBooked(slot.label);
+        setMsgs((m) => [
+          ...m.map((x) => (x.slots ? { ...x, slots: undefined } : x)),
+          { role: "ai", text: `✅ You're booked for ${slot.label}. It's on our calendar — see you then!` },
+        ]);
+      } else {
+        const d = await res.json().catch(() => ({}));
+        setMsgs((m) => [...m, { role: "ai", text: d.error ?? "Couldn't book that slot — please try another." }]);
+      }
+    } catch {
+      setMsgs((m) => [...m, { role: "ai", text: "Network error — please try again." }]);
+    } finally {
+      setBooking(false);
+    }
+  }
+
+  async function clearChat() {
+    // Forget the resumable thread on the server (clears the chat cookie).
+    fetch(`/api/chat/history?handle=${encodeURIComponent(business.handle)}`, { method: "DELETE" }).catch(() => {});
+    convRef.current = {};
+    setMsgs([]);
+    setBooked(null);
+    setInput("");
+  }
+
   return (
     <div className="animate-fade-up">
-      <BackBar title="Chat with us" onBack={onBack} />
+      <div className="flex items-center justify-between gap-2">
+        <BackBar title="Chat with us" onBack={onBack} />
+        {msgs.length > 0 && (
+          <button
+            onClick={clearChat}
+            className="mb-4 text-[11px] font-semibold text-[#a6a59c] hover:text-[#1b1a14] transition shrink-0"
+          >
+            New chat
+          </button>
+        )}
+      </div>
       <div className="h-72 overflow-y-auto space-y-2.5 pr-1">
-        {msgs.length === 0 && (
+        {msgs.length === 0 && loadingHistory && (
+          <div className="flex justify-center pt-16 gap-1.5">
+            <span className="typing-dot" /><span className="typing-dot" /><span className="typing-dot" />
+          </div>
+        )}
+        {msgs.length === 0 && !loadingHistory && (
           <div className="text-center pt-12 animate-fade-up delay-150">
             <p className="animate-float text-[#a6a59c] flex justify-center"><SparklesIcon size={28} /></p>
             <p className="mt-3 text-xs text-[#8a897f]">
@@ -247,7 +331,7 @@ function ChatPanel({ business, color, onBack }: { business: PublicBusiness; colo
           </div>
         )}
         {msgs.map((m, i) => (
-          <div key={i} className={`flex animate-msg-in ${m.role === "visitor" ? "justify-end" : "justify-start"}`}>
+          <div key={i} className={`flex flex-col animate-msg-in ${m.role === "visitor" ? "items-end" : "items-start"}`}>
             <div
               className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap ${
                 m.role === "visitor"
@@ -258,6 +342,20 @@ function ChatPanel({ business, color, onBack }: { business: PublicBusiness; colo
             >
               {m.text}
             </div>
+            {m.role === "ai" && m.slots && m.slots.length > 0 && !booked && (
+              <div className="mt-2 flex flex-col gap-1.5 w-[85%]">
+                {m.slots.map((s) => (
+                  <button
+                    key={s.startISO}
+                    onClick={() => bookSlot(s)}
+                    disabled={booking}
+                    className="rounded-xl border border-[#e3e3df] bg-white px-3.5 py-2.5 text-sm font-semibold text-[#232219] text-left transition hover:border-[#21201a] hover:-translate-y-0.5 disabled:opacity-50 flex items-center gap-2"
+                  >
+                    <span style={{ color }}>📅</span> {s.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         ))}
         {busy && (
@@ -306,7 +404,7 @@ function MessageForm({ business, color, onBack, onDone }: { business: PublicBusi
     const res = await fetch("/api/conversations", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ handle: business.handle, channel: "message", visitorName: name, visitorContact: contact, text }),
+      body: JSON.stringify({ handle: business.handle, channel: "message", visitorName: name, visitorContact: contact, text, clientMeta: collectClientMeta() }),
     });
     if (res.ok) onDone();
     else {
@@ -389,7 +487,7 @@ function VoicemailPanel({ business, color, onBack, onDone }: { business: PublicB
     const res = await fetch("/api/conversations", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ handle: business.handle, channel: "voicemail", visitorName: name, visitorContact: contact, audioDataUrl: audioUrl }),
+      body: JSON.stringify({ handle: business.handle, channel: "voicemail", visitorName: name, visitorContact: contact, audioDataUrl: audioUrl, clientMeta: collectClientMeta() }),
     });
     if (res.ok) onDone();
     else {
@@ -471,7 +569,7 @@ function CallbackForm({ business, color, onBack, onDone }: { business: PublicBus
     const res = await fetch("/api/conversations", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ handle: business.handle, channel: "callback", visitorName: name, phone, preferredTime, text }),
+      body: JSON.stringify({ handle: business.handle, channel: "callback", visitorName: name, phone, preferredTime, text, clientMeta: collectClientMeta() }),
     });
     if (res.ok) onDone();
     else {

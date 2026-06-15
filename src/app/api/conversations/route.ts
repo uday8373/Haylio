@@ -7,6 +7,7 @@ import {
   listConversations,
   updateEngagement,
 } from "@/lib/store";
+import { buildVisitorMeta } from "@/lib/visitor";
 import type { Channel } from "@/lib/types";
 
 /** Dashboard: list my conversations. */
@@ -19,7 +20,7 @@ export async function GET() {
 /** Public widget: start a conversation (message / voicemail / callback). */
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
-  const { handle, channel, visitorName, visitorContact, text, audioDataUrl, phone, preferredTime } = body ?? {};
+  const { handle, channel, visitorName, visitorContact, text, audioDataUrl, phone, preferredTime, clientMeta } = body ?? {};
   const biz = handle ? await getBusinessByHandle(handle) : undefined;
   if (!biz) return NextResponse.json({ error: "Business not found" }, { status: 404 });
 
@@ -45,6 +46,7 @@ export async function POST(req: NextRequest) {
     channel,
     visitorName: visitorName || (fromCall ? `Caller •${fromCall.callerLast4}` : undefined),
     visitorContact: visitorContact || phone || fromCall?.callerNumber,
+    visitorMeta: buildVisitorMeta(req, clientMeta),
     firstMessage:
       channel === "voicemail"
         ? { role: "visitor", kind: "audio", audioDataUrl, text }

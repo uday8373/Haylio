@@ -150,3 +150,40 @@ export function voiceTwiml(greeting: string): string {
   <Hangup/>
 </Response>`;
 }
+
+const xmlEscape = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+/** Neutral greeting for the press-1 flow (the SMS hasn't been sent yet). */
+export const DEFAULT_CONFIRM_GREETING = (name: string) => `Thanks for calling ${name}!`;
+
+/**
+ * TwiML for the confirmation intercept: greet the caller, then ask them to
+ * press 1 to receive the support link by text. The keypress is posted to
+ * `actionUrl`, which sends the SMS (see /api/twilio/voice/confirm).
+ */
+export function confirmGatherTwiml(greeting: string, actionUrl: string): string {
+  const prompt = "To get a text message with a link to reach us instantly, press 1.";
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Pause length="1"/>
+  <Gather numDigits="1" timeout="7" action="${xmlEscape(actionUrl)}" method="POST">
+    <Say voice="Polly.Joanna">${xmlEscape(greeting)}</Say>
+    <Pause length="1"/>
+    <Say voice="Polly.Joanna">${xmlEscape(prompt)}</Say>
+  </Gather>
+  <Say voice="Polly.Joanna">We didn't catch that. Goodbye.</Say>
+  <Hangup/>
+</Response>`;
+}
+
+/** TwiML spoken after the caller confirms (pressed 1) or declines. */
+export function confirmResultTwiml(sent: boolean): string {
+  const msg = sent
+    ? "Great! We've just sent you a text with a link to reach us. Talk soon!"
+    : "No problem. Goodbye.";
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="Polly.Joanna">${xmlEscape(msg)}</Say>
+  <Hangup/>
+</Response>`;
+}

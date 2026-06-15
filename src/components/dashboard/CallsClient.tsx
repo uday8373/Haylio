@@ -3,8 +3,9 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { SmsVerificationStatus, VirtualNumber } from "@/lib/types";
-import { CheckIcon, PhoneIcon, SearchIcon, SparklesIcon } from "@/components/icons";
+import { CheckIcon, PhoneIcon, SearchIcon, SendIcon, SparklesIcon } from "@/components/icons";
 import SmsStatusBadges from "@/components/dashboard/SmsStatusBadges";
+import { SUPPORT_TEMPLATES, renderSupport } from "@/lib/supportTemplates";
 
 interface AvailableNumber {
   phoneNumber: string;
@@ -406,6 +407,119 @@ export function SimulateCall({ hasNumber }: { hasNumber: boolean }) {
             On a trial Twilio account, SMS only delivers to verified numbers — and toll-free SMS requires the number's
             verification to be approved.
           </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function SendSupportLink({
+  hasNumber,
+  businessName,
+  supportLink,
+}: {
+  hasNumber: boolean;
+  businessName: string;
+  supportLink: string;
+}) {
+  const [to, setTo] = useState("");
+  const [templateId, setTemplateId] = useState(SUPPORT_TEMPLATES[0].id);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [sent, setSent] = useState<{ to: string; message: string; status?: string } | null>(null);
+
+  const template = SUPPORT_TEMPLATES.find((t) => t.id === templateId) ?? SUPPORT_TEMPLATES[0];
+  const preview = renderSupport(template.body, businessName, supportLink);
+
+  async function send() {
+    setBusy(true);
+    setError("");
+    setSent(null);
+    const res = await fetch("/api/support-sms", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ to, templateId }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (!res.ok) {
+      setError(data.error ?? "Couldn't send the message.");
+      return;
+    }
+    setSent({ to: data.to, message: data.message, status: data.status });
+    setTo("");
+  }
+
+  return (
+    <div className="card p-5 md:p-7">
+      <h2 className="text-lg font-semibold flex items-center gap-2">
+        <SendIcon size={17} className="text-[#e8552f]" /> Send a support link
+      </h2>
+      <p className="mt-1.5 text-xs text-[#8a897f]">
+        Text your contact link to any mobile. Pick a ready-made message — the link is added automatically.
+      </p>
+
+      <div className="mt-4">
+        <label className="label">Send to (mobile, with country code)</label>
+        <input
+          className="input"
+          placeholder="+1 415 555 0134"
+          value={to}
+          onChange={(e) => setTo(e.target.value)}
+        />
+      </div>
+
+      <div className="mt-4">
+        <label className="label">Message template</label>
+        <div className="grid sm:grid-cols-2 gap-2">
+          {SUPPORT_TEMPLATES.map((t) => {
+            const active = t.id === templateId;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setTemplateId(t.id)}
+                className={`text-left rounded-2xl border p-3 transition ${
+                  active ? "border-[#21201a] bg-[#faf9f6]" : "border-[#e8e8e4] hover:border-[#c9c9c3]"
+                }`}
+              >
+                <span className="flex items-center gap-2 text-sm font-semibold text-[#232219]">
+                  <span
+                    className={`w-3.5 h-3.5 rounded-full border-[3px] shrink-0 ${
+                      active ? "border-[#e8552f] bg-white" : "border-[#d8d8d3] bg-white"
+                    }`}
+                  />
+                  {t.label}
+                </span>
+                <span className="block text-[11px] text-[#8a897f] mt-1 ml-[22px]">{t.description}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <p className="text-[10px] font-bold text-[#a6a59c] tracking-wide">PREVIEW</p>
+        <div className="mt-2 max-w-sm rounded-2xl rounded-bl-md bg-[#e9e9eb] px-4 py-3 text-sm text-[#1b1a14]">
+          {preview}
+        </div>
+      </div>
+
+      <button onClick={send} className="btn-primary mt-4 w-full justify-center" disabled={busy || !hasNumber || !to.trim()}>
+        {busy ? "Sending…" : "Send support link"}
+      </button>
+      {!hasNumber && <p className="mt-2 text-[11px] text-[#a6a59c]">Purchase your number first.</p>}
+      {error && <p className="mt-3 text-sm text-[#e8552f]">{error}</p>}
+
+      {sent && (
+        <div className="mt-4 rounded-2xl border border-[#cfe3c6] bg-[#f1f7ee] p-4 animate-scale-in">
+          <p className="text-xs font-semibold text-[#3e7d3a] flex items-center gap-1.5">
+            <CheckIcon size={13} /> Sent to {sent.to}
+            {sent.status ? ` — ${sent.status === "delivered" ? "delivered" : "accepted by Twilio"}` : ""}.
+          </p>
+          <div className="mt-2 max-w-sm rounded-2xl rounded-bl-md bg-[#e9e9eb] px-4 py-3 text-sm text-[#1b1a14]">
+            {sent.message}
+          </div>
         </div>
       )}
     </div>

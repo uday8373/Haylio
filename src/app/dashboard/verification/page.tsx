@@ -48,7 +48,7 @@ export default async function VerificationPage() {
         defaults={{
           businessName: biz.name,
           website: biz.website,
-          address: biz.location,
+          addressStreet: biz.location,
           contactName: "",
           contactEmail: biz.email,
           contactPhone: biz.phone,
