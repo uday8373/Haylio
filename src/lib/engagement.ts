@@ -152,11 +152,11 @@ function sayVoice(voice?: string): string {
  * How long a "missed call" rings before we drop it (seconds). The call is held
  * in the ringing state for this long — the caller hears one or two rings — then
  * it's rejected. Because the call is never answered, no talk-time is billed.
- * Tunable via MISSED_CALL_RING_SECONDS (clamped to 1–12s; default 6 ≈ ~2 rings).
+ * Tunable via MISSED_CALL_RING_SECONDS (clamped to 1–12s; default 5).
  */
 export const MISSED_CALL_RING_SECONDS = Math.min(
   12,
-  Math.max(1, Number(process.env.MISSED_CALL_RING_SECONDS) || 6)
+  Math.max(1, Number(process.env.MISSED_CALL_RING_SECONDS) || 5)
 );
 
 /**
