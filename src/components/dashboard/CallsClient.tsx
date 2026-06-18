@@ -6,12 +6,40 @@ import type { SmsVerificationStatus, VirtualNumber } from "@/lib/types";
 import { CheckIcon, PhoneIcon, SearchIcon, SendIcon, SparklesIcon } from "@/components/icons";
 import SmsStatusBadges from "@/components/dashboard/SmsStatusBadges";
 import { SUPPORT_TEMPLATES, renderSupport } from "@/lib/supportTemplates";
-import { IVR_VOICES, IVR_SCRIPTS, DEFAULT_VOICE, DEFAULT_IVR_SCRIPT_ID, getIvrScript } from "@/lib/ivr";
+import { IVR_VOICES, IVR_SCRIPTS, DEFAULT_VOICE, DEFAULT_IVR_SCRIPT_ID, getIvrScript, CALL_MODES, DEFAULT_CALL_MODE, getCallMode, type CallHandlingModeId } from "@/lib/ivr";
 
 interface AvailableNumber {
   phoneNumber: string;
   friendlyName: string;
   region?: string;
+}
+
+// Name hints to approximate gender when matching the browser's TTS voices to a
+// chosen Polly voice (browser voices don't expose a gender field).
+const FEMALE_HINTS = ["female", "samantha", "victoria", "karen", "moira", "tessa", "fiona", "zira", "susan", "linda", "heera", "veena", "kajal", "joanna", "amy", "danielle", "aria", "sonia"];
+const MALE_HINTS = ["male", "daniel", "alex", "fred", "rishi", "matthew", "brian", "george", "guy", "oliver", "ravi"];
+
+/**
+ * Browser-side approximate preview of the chosen IVR voice. The real call uses
+ * Amazon Polly via Twilio; this just reads the sample with the closest local
+ * voice (matched by accent/locale, then a gender hint) so the user can compare.
+ */
+function speakSample(text: string, lang: string, gender: "male" | "female", onEnd: () => void) {
+  const synth = typeof window !== "undefined" ? window.speechSynthesis : null;
+  if (!synth) { onEnd(); return; }
+  synth.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = lang;
+  u.rate = 0.97;
+  const voices = synth.getVoices();
+  const localeMatches = voices.filter((v) => v.lang.replace("_", "-").toLowerCase().startsWith(lang.toLowerCase()));
+  const pool = localeMatches.length ? localeMatches : voices.filter((v) => v.lang.toLowerCase().startsWith("en"));
+  const hints = gender === "female" ? FEMALE_HINTS : MALE_HINTS;
+  const match = pool.find((v) => hints.some((h) => v.name.toLowerCase().includes(h))) ?? pool[0];
+  if (match) u.voice = match;
+  u.onend = onEnd;
+  u.onerror = onEnd;
+  synth.speak(u);
 }
 
 export function NumberCard({
@@ -38,7 +66,7 @@ export function NumberCard({
   const [voice, setVoice] = useState(vn?.voice ?? DEFAULT_VOICE);
   const [ivrScriptId, setIvrScriptId] = useState(vn?.ivrScriptId ?? DEFAULT_IVR_SCRIPT_ID);
   const [previewing, setPreviewing] = useState(false);
-  const [forwardingEnabled, setForwardingEnabled] = useState(vn?.forwardingEnabled ?? false);
+  const [callMode, setCallMode] = useState<CallHandlingModeId>(vn?.callMode ?? DEFAULT_CALL_MODE);
   const [forwardToNumber, setForwardToNumber] = useState(vn?.forwardToNumber ?? "");
   const [forwardStart, setForwardStart] = useState(vn?.forwardStart ?? "09:00");
   const [forwardEnd, setForwardEnd] = useState(vn?.forwardEnd ?? "18:00");
@@ -107,7 +135,7 @@ export function NumberCard({
         smsTemplate,
         voice,
         ivrScriptId,
-        forwardingEnabled,
+        callMode,
         forwardToNumber,
         forwardStart,
         forwardEnd,
@@ -223,139 +251,198 @@ export function NumberCard({
       </div>
 
 
-      <div className="mt-6 space-y-4">
-        {/* Call forwarding */}
-        <div className={`rounded-2xl border p-4 transition-colors ${forwardingEnabled ? "border-[#21201a] bg-[#f6f6f3]" : "border-[#ebebe8] bg-[#fafaf8]"}`}>
-          <label className="flex items-center gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              className="peer sr-only"
-              checked={forwardingEnabled}
-              onChange={(e) => setForwardingEnabled(e.target.checked)}
-            />
-            <span className={`relative w-11 h-6 rounded-full transition-colors duration-300 shrink-0 ${forwardingEnabled ? "bg-[#e8552f]" : "bg-[#ececea]"}`}>
-              <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all duration-300 ${forwardingEnabled ? "left-[22px]" : "left-0.5"}`} />
-            </span>
-            <span>
-              <span className="block text-sm font-semibold text-[#232219]">Forward calls to my phone</span>
-              <span className="block text-xs text-[#8a897f] mt-0.5">
-                Callers ring your real phone — they only ever see your toll-free number. Missed calls fall back to the greeting + SMS link.
-              </span>
-            </span>
-          </label>
-          {forwardingEnabled && (
-            <div className="mt-3 space-y-3 animate-scale-in">
-              <input
-                className="input"
-                type="tel"
-                placeholder="Your phone, e.g. +1 415 555 0134"
-                value={forwardToNumber}
-                onChange={(e) => setForwardToNumber(e.target.value)}
-              />
-              <div className="flex items-center gap-2 flex-wrap text-sm text-[#55544c]">
-                Ring my phone from
-                <input type="time" className="input !w-auto !py-2" value={forwardStart} onChange={(e) => setForwardStart(e.target.value)} />
-                to
-                <input type="time" className="input !w-auto !py-2" value={forwardEnd} onChange={(e) => setForwardEnd(e.target.value)} />
-              </div>
-              <p className="text-[11px] text-[#a6a59c]">
-                Outside these hours callers get the SMS link instead. Your number is never shown to callers.
-              </p>
-
-              {/* DND */}
-              <div className="rounded-xl border border-[#ebebe8] bg-white p-3">
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input type="checkbox" className="peer sr-only" checked={dndEnabled} onChange={(e) => setDndEnabled(e.target.checked)} />
-                  <span className={`relative w-9 h-5 rounded-full transition-colors duration-300 shrink-0 ${dndEnabled ? "bg-[#21201a]" : "bg-[#ececea]"}`}>
-                    <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all duration-300 ${dndEnabled ? "left-[18px]" : "left-0.5"}`} />
-                  </span>
-                  <span className="text-sm font-semibold text-[#232219]">Do not disturb hours</span>
-                </label>
-                {dndEnabled && (
-                  <div className="mt-2.5 flex items-center gap-2 flex-wrap text-sm text-[#55544c] animate-scale-in">
-                    Never ring me between
-                    <input type="time" className="input !w-auto !py-2" value={dndStart} onChange={(e) => setDndStart(e.target.value)} />
-                    and
-                    <input type="time" className="input !w-auto !py-2" value={dndEnd} onChange={(e) => setDndEnd(e.target.value)} />
-                  </div>
-                )}
-              </div>
-
-              {/* Minutes meter */}
-              <div className="rounded-xl border border-[#ebebe8] bg-white p-3">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-semibold text-[#232219]">Forwarding minutes this month</span>
-                  <span className={`font-mono ${minutesUsed >= minutesLimit ? "text-[#e8552f] font-bold" : "text-[#6b6a60]"}`}>
-                    {minutesUsed} / {minutesLimit} min
-                  </span>
-                </div>
-                <div className="mt-2 h-2 rounded-full bg-[#f1f1ee] overflow-hidden">
-                  <div
-                    className="h-full rounded-full transition-all"
-                    style={{
-                      width: `${Math.min(100, (minutesUsed / minutesLimit) * 100)}%`,
-                      background: minutesUsed >= minutesLimit ? "#e8552f" : minutesUsed / minutesLimit > 0.8 ? "#d97706" : "#3e7d3a",
-                    }}
-                  />
-                </div>
-                {minutesUsed >= minutesLimit ? (
-                  <p className="mt-2 text-[11px] font-semibold text-[#e8552f]">
-                    Limit reached — callers get the SMS link until next month.
-                  </p>
-                ) : (
-                  <p className="mt-2 text-[11px] text-[#a6a59c]">
-                    Tip: the SMS link costs a fraction of a forwarded minute — most repetitive questions never need to ring your phone.
-                  </p>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-
+      <div className="mt-6 space-y-5">
+        {/* Call-handling mode selector */}
         <div>
-          <label className="label">Voice greeting <span className="text-[#a6a59c] font-normal">{forwardingEnabled ? "(played when you miss a forwarded call)" : "(played to every caller, then we ask them to press 1)"}</span></label>
-          <textarea className="input min-h-20" value={greeting} onChange={(e) => setGreeting(e.target.value)} maxLength={500} />
-        </div>
-
-        {/* IVR voice (tone / accent) */}
-        <div>
-          <label className="label">Voice & tone <span className="text-[#a6a59c] font-normal">— how the greeting is spoken</span></label>
-          <select className="input" value={voice} onChange={(e) => setVoice(e.target.value)}>
-            {IVR_VOICES.map((v) => (
-              <option key={v.id} value={v.id}>{v.label}</option>
-            ))}
-          </select>
-        </div>
-
-        {/* IVR script (press-1 wording) */}
-        <div>
-          <label className="label">Press-1 prompt wording</label>
-          <div className="grid sm:grid-cols-2 gap-2">
-            {IVR_SCRIPTS.map((s) => {
-              const active = s.id === ivrScriptId;
+          <label className="label">How calls are handled</label>
+          <div className="grid gap-2">
+            {CALL_MODES.map((m) => {
+              const active = m.id === callMode;
               return (
                 <button
-                  key={s.id}
+                  key={m.id}
                   type="button"
-                  onClick={() => setIvrScriptId(s.id)}
-                  className={`text-left rounded-2xl border p-3 transition ${
-                    active ? "border-[#21201a] bg-[#faf9f6]" : "border-[#e8e8e4] hover:border-[#c9c9c3]"
+                  onClick={() => setCallMode(m.id)}
+                  className={`text-left rounded-2xl border p-3.5 transition ${
+                    active ? "border-[#21201a] bg-[#f6f6f3]" : "border-[#e8e8e4] bg-[#fafaf8] hover:border-[#c9c9c3]"
                   }`}
                 >
-                  <span className="flex items-center gap-2 text-sm font-semibold text-[#232219]">
-                    <span className={`w-3.5 h-3.5 rounded-full border-[3px] shrink-0 ${active ? "border-[#e8552f] bg-white" : "border-[#d8d8d3] bg-white"}`} />
-                    {s.label}
+                  <span className="flex items-start gap-2.5">
+                    <span className={`w-4 h-4 rounded-full border-[3px] shrink-0 mt-0.5 ${active ? "border-[#e8552f] bg-white" : "border-[#d8d8d3] bg-white"}`} />
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-semibold text-[#232219]">{m.label}</span>
+                        <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${m.chargeable ? "bg-[#fdf0eb] text-[#9a4a2e] border-[#f3d9cf]" : "bg-[#eef6ea] text-[#3e7d3a] border-[#cfe3c6]"}`}>
+                          {m.chargeable ? "Chargeable" : "Non-chargeable"}
+                        </span>
+                      </span>
+                      <span className="block text-xs text-[#8a897f] mt-1">{m.description}</span>
+                    </span>
                   </span>
-                  <span className="block text-[11px] text-[#8a897f] mt-1 ml-[22px]">{s.description}</span>
                 </button>
               );
             })}
           </div>
-          <div className="mt-2.5">
-            <p className="text-[10px] font-bold text-[#a6a59c] tracking-wide">CALLER HEARS (AFTER GREETING)</p>
-            <p className="mt-1 text-sm text-[#4b4a42] italic">"{getIvrScript(ivrScriptId).prompt}"</p>
+          <div className="mt-2.5 rounded-xl bg-[#faf9f6] border border-[#ececea] px-3 py-2.5">
+            <p className="text-[10px] font-bold text-[#a6a59c] tracking-wide">WHAT THE CALLER EXPERIENCES</p>
+            <p className="mt-1 text-sm text-[#4b4a42]">{getCallMode(callMode).callerExperience}</p>
           </div>
         </div>
+
+        {/* Forward settings — only in Forward mode */}
+        {callMode === "forward" && (
+          <div className="rounded-2xl border border-[#21201a] bg-[#f6f6f3] p-4 space-y-3 animate-scale-in">
+            <p className="text-sm font-semibold text-[#232219]">Forwarding details</p>
+            <input
+              className="input"
+              type="tel"
+              placeholder="Your phone, e.g. +1 415 555 0134"
+              value={forwardToNumber}
+              onChange={(e) => setForwardToNumber(e.target.value)}
+            />
+            <div className="flex items-center gap-2 flex-wrap text-sm text-[#55544c]">
+              Ring my phone from
+              <input type="time" className="input !w-auto !py-2" value={forwardStart} onChange={(e) => setForwardStart(e.target.value)} />
+              to
+              <input type="time" className="input !w-auto !py-2" value={forwardEnd} onChange={(e) => setForwardEnd(e.target.value)} />
+            </div>
+            <p className="text-[11px] text-[#a6a59c]">
+              Outside these hours callers get your support link by text instead. Your number is never shown to callers.
+            </p>
+
+            {/* DND */}
+            <div className="rounded-xl border border-[#ebebe8] bg-white p-3">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input type="checkbox" className="peer sr-only" checked={dndEnabled} onChange={(e) => setDndEnabled(e.target.checked)} />
+                <span className={`relative w-9 h-5 rounded-full transition-colors duration-300 shrink-0 ${dndEnabled ? "bg-[#21201a]" : "bg-[#ececea]"}`}>
+                  <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all duration-300 ${dndEnabled ? "left-[18px]" : "left-0.5"}`} />
+                </span>
+                <span className="text-sm font-semibold text-[#232219]">Do not disturb hours</span>
+              </label>
+              {dndEnabled && (
+                <div className="mt-2.5 flex items-center gap-2 flex-wrap text-sm text-[#55544c] animate-scale-in">
+                  Never ring me between
+                  <input type="time" className="input !w-auto !py-2" value={dndStart} onChange={(e) => setDndStart(e.target.value)} />
+                  and
+                  <input type="time" className="input !w-auto !py-2" value={dndEnd} onChange={(e) => setDndEnd(e.target.value)} />
+                </div>
+              )}
+            </div>
+
+            {/* Minutes meter */}
+            <div className="rounded-xl border border-[#ebebe8] bg-white p-3">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-semibold text-[#232219]">Forwarding minutes this month</span>
+                <span className={`font-mono ${minutesUsed >= minutesLimit ? "text-[#e8552f] font-bold" : "text-[#6b6a60]"}`}>
+                  {minutesUsed} / {minutesLimit} min
+                </span>
+              </div>
+              <div className="mt-2 h-2 rounded-full bg-[#f1f1ee] overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all"
+                  style={{
+                    width: `${Math.min(100, (minutesUsed / minutesLimit) * 100)}%`,
+                    background: minutesUsed >= minutesLimit ? "#e8552f" : minutesUsed / minutesLimit > 0.8 ? "#d97706" : "#3e7d3a",
+                  }}
+                />
+              </div>
+              {minutesUsed >= minutesLimit ? (
+                <p className="mt-2 text-[11px] font-semibold text-[#e8552f]">
+                  Limit reached — callers get the support link by text until next month.
+                </p>
+              ) : (
+                <p className="mt-2 text-[11px] text-[#a6a59c]">
+                  Forwarded calls use talk-time. Beyond this monthly cap, callers automatically get the support link by text instead.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Missed-call explainer — only in Missed-call mode */}
+        {callMode === "missed_call" && (
+          <div className="rounded-2xl border border-[#cfe3c6] bg-[#f1f7ee] p-4 animate-scale-in">
+            <p className="text-sm font-semibold text-[#2c5e29]">No talk-time, ever</p>
+            <p className="mt-1 text-xs text-[#4f6b4a] leading-relaxed">
+              Calls are disconnected the instant they come in — no greeting, no ringing your phone, so you're never
+              billed for a forwarded minute. Every caller is automatically texted the support link below, where they
+              can chat, leave a voice note, or request a callback.
+            </p>
+          </div>
+        )}
+
+        {/* Voice greeting — spoken in IVR mode (and as the forward-missed voicemail) */}
+        {(callMode === "ivr" || callMode === "forward") && (
+          <>
+            <div>
+              <label className="label">Voice greeting <span className="text-[#a6a59c] font-normal">{callMode === "forward" ? "(played when you miss a forwarded call)" : "(played to every caller, then we ask them to press 1)"}</span></label>
+              <textarea className="input min-h-20" value={greeting} onChange={(e) => setGreeting(e.target.value)} maxLength={500} />
+            </div>
+
+            {/* IVR voice (tone / accent) */}
+            <div>
+              <label className="label">Voice & tone <span className="text-[#a6a59c] font-normal">— how the greeting is spoken</span></label>
+              <div className="flex items-center gap-2">
+                <select className="input" value={voice} onChange={(e) => setVoice(e.target.value)}>
+                  {IVR_VOICES.map((v) => (
+                    <option key={v.id} value={v.id}>{v.label}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className="btn-secondary shrink-0 !px-4"
+                  onClick={() => {
+                    if (previewing) { window.speechSynthesis?.cancel(); setPreviewing(false); return; }
+                    const v = IVR_VOICES.find((x) => x.id === voice) ?? IVR_VOICES[0];
+                    const sample = callMode === "ivr"
+                      ? `${greeting || "Thanks for calling!"} ${getIvrScript(ivrScriptId).prompt}`
+                      : (greeting || "Thanks for calling! We've just texted you a link to reach us.");
+                    setPreviewing(true);
+                    speakSample(sample, v.lang, v.gender, () => setPreviewing(false));
+                  }}
+                >
+                  {previewing ? "■ Stop" : "▶ Preview"}
+                </button>
+              </div>
+              <p className="mt-1.5 text-[11px] text-[#a6a59c]">
+                Preview uses your browser's voices as an approximation. On a real call, Twilio speaks
+                with Amazon Polly's more natural "{(IVR_VOICES.find((x) => x.id === voice) ?? IVR_VOICES[0]).label.split(" · ")[1]}" voice.
+              </p>
+            </div>
+          </>
+        )}
+
+        {/* IVR script (press-1 wording) — only in IVR mode */}
+        {callMode === "ivr" && (
+          <div>
+            <label className="label">Press-1 prompt wording</label>
+            <div className="grid sm:grid-cols-2 gap-2">
+              {IVR_SCRIPTS.map((s) => {
+                const active = s.id === ivrScriptId;
+                return (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => setIvrScriptId(s.id)}
+                    className={`text-left rounded-2xl border p-3 transition ${
+                      active ? "border-[#21201a] bg-[#faf9f6]" : "border-[#e8e8e4] hover:border-[#c9c9c3]"
+                    }`}
+                  >
+                    <span className="flex items-center gap-2 text-sm font-semibold text-[#232219]">
+                      <span className={`w-3.5 h-3.5 rounded-full border-[3px] shrink-0 ${active ? "border-[#e8552f] bg-white" : "border-[#d8d8d3] bg-white"}`} />
+                      {s.label}
+                    </span>
+                    <span className="block text-[11px] text-[#8a897f] mt-1 ml-[22px]">{s.description}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="mt-2.5">
+              <p className="text-[10px] font-bold text-[#a6a59c] tracking-wide">CALLER HEARS (AFTER GREETING)</p>
+              <p className="mt-1 text-sm text-[#4b4a42] italic">"{getIvrScript(ivrScriptId).prompt}"</p>
+            </div>
+          </div>
+        )}
         <div>
           <label className="label">
             SMS template <span className="text-[#a6a59c] font-normal">— use {"{business}"} and {"{link}"}</span>
@@ -381,7 +468,7 @@ export function SimulateCall({ hasNumber }: { hasNumber: boolean }) {
   const router = useRouter();
   const [caller, setCaller] = useState("");
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<{ greeting: string; smsBody: string; link: string; smsStatus?: string; smsError?: string; forwardingNote?: string } | null>(null);
+  const [result, setResult] = useState<{ callMode?: CallHandlingModeId; greeting: string; smsBody: string; link: string; smsStatus?: string; smsError?: string; forwardingNote?: string } | null>(null);
   const [error, setError] = useState("");
 
   async function simulate() {
@@ -429,10 +516,17 @@ export function SimulateCall({ hasNumber }: { hasNumber: boolean }) {
           {result.forwardingNote && (
             <p className="text-[11px] text-[#9a4a2e] bg-[#fdf0eb] border border-[#f3d9cf] rounded-xl px-3 py-2">{result.forwardingNote}</p>
           )}
-          <div>
-            <p className="text-[10px] font-bold text-[#a6a59c] tracking-wide">CALLER HEARS</p>
-            <p className="mt-1 text-sm text-[#4b4a42] italic">"{result.greeting}"</p>
-          </div>
+          {result.callMode === "missed_call" ? (
+            <div>
+              <p className="text-[10px] font-bold text-[#a6a59c] tracking-wide">CALLER HEARS</p>
+              <p className="mt-1 text-sm text-[#4b4a42] italic">Nothing — the call is disconnected instantly (no audio).</p>
+            </div>
+          ) : (
+            <div>
+              <p className="text-[10px] font-bold text-[#a6a59c] tracking-wide">CALLER HEARS</p>
+              <p className="mt-1 text-sm text-[#4b4a42] italic">"{result.greeting}"</p>
+            </div>
+          )}
           <div>
             <p className="text-[10px] font-bold text-[#a6a59c] tracking-wide">CALLER RECEIVES (SMS)</p>
             <div className="mt-2 max-w-sm rounded-2xl rounded-bl-md bg-[#e9e9eb] px-4 py-3 text-sm text-[#1b1a14]">

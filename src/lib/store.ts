@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { sbDelete, sbInsert, sbSelect, sbUpdate, supabaseEnabled } from "./supabase";
 import { DEFAULT_VOICE, DEFAULT_IVR_SCRIPT_ID } from "./ivr";
-import type { Business, Conversation, Engagement, Message, PublicBusiness, Channel, VirtualNumber, SmsVerification, VisitorMeta, LeadTag, LeadTagRecord, CalendarAccount, ConversationTag, TeamMember, TeamRole } from "./types";
+import type { Business, Conversation, Engagement, Message, PublicBusiness, Channel, VirtualNumber, CallHandlingMode, SmsVerification, VisitorMeta, LeadTag, LeadTagRecord, CalendarAccount, ConversationTag, TeamMember, TeamRole } from "./types";
 
 /**
  * Data layer. Uses Supabase (PostgREST) when SUPABASE_URL/SUPABASE_ANON_KEY
@@ -525,12 +525,19 @@ type VnRow = {
   provider: VirtualNumber["provider"]; status: VirtualNumber["status"];
   greeting: string; sms_template: string;
   voice: string | null; ivr_script_id: string | null;
+  call_mode: string | null;
   forwarding_enabled: boolean | null; forward_to_number: string | null;
   forward_start: string | null; forward_end: string | null;
   dnd_enabled: boolean | null; dnd_start: string | null; dnd_end: string | null;
   tz_offset_minutes: number | null;
   created_at: number;
 };
+
+/** Resolve a stored call_mode, backfilling legacy rows from forwarding_enabled. */
+function normalizeCallMode(raw: unknown, forwardingEnabled: boolean | null): CallHandlingMode {
+  if (raw === "ivr" || raw === "missed_call" || raw === "forward") return raw;
+  return forwardingEnabled ? "forward" : "ivr";
+}
 
 function rowToVn(r: VnRow): VirtualNumber {
   return {
@@ -540,6 +547,7 @@ function rowToVn(r: VnRow): VirtualNumber {
     greeting: r.greeting, smsTemplate: r.sms_template,
     voice: r.voice ?? DEFAULT_VOICE,
     ivrScriptId: r.ivr_script_id ?? DEFAULT_IVR_SCRIPT_ID,
+    callMode: normalizeCallMode(r.call_mode, r.forwarding_enabled),
     forwardingEnabled: r.forwarding_enabled ?? false,
     forwardToNumber: r.forward_to_number ?? "",
     forwardStart: r.forward_start ?? "09:00",
@@ -568,13 +576,14 @@ export async function getNumberByPhone(phoneNumber: string): Promise<VirtualNumb
   return [...mem().virtualNumbers.values()].find((v) => v.phoneNumber === phoneNumber);
 }
 
-type VnDefaults = "voice" | "ivrScriptId" | "forwardingEnabled" | "forwardToNumber" | "forwardStart" | "forwardEnd" | "dndEnabled" | "dndStart" | "dndEnd" | "tzOffsetMinutes";
+type VnDefaults = "voice" | "ivrScriptId" | "callMode" | "forwardingEnabled" | "forwardToNumber" | "forwardStart" | "forwardEnd" | "dndEnabled" | "dndStart" | "dndEnd" | "tzOffsetMinutes";
 
 export async function createVirtualNumber(vn: Omit<VirtualNumber, "id" | "createdAt" | VnDefaults>): Promise<VirtualNumber> {
   const full: VirtualNumber = {
     ...vn,
     voice: DEFAULT_VOICE,
     ivrScriptId: DEFAULT_IVR_SCRIPT_ID,
+    callMode: "ivr",
     forwardingEnabled: false,
     forwardToNumber: "",
     forwardStart: "09:00",
@@ -593,6 +602,7 @@ export async function createVirtualNumber(vn: Omit<VirtualNumber, "id" | "create
       provider: full.provider, status: full.status,
       greeting: full.greeting, sms_template: full.smsTemplate,
       voice: full.voice, ivr_script_id: full.ivrScriptId,
+      call_mode: full.callMode,
       forwarding_enabled: false, forward_to_number: "",
       forward_start: full.forwardStart, forward_end: full.forwardEnd,
       dnd_enabled: false, dnd_start: full.dndStart, dnd_end: full.dndEnd,
@@ -610,7 +620,7 @@ export async function updateVirtualNumber(
   patch: Partial<
     Pick<
       VirtualNumber,
-      | "greeting" | "smsTemplate" | "voice" | "ivrScriptId" | "status" | "twilioSid" | "subaccountSid" | "phoneNumber" | "provider"
+      | "greeting" | "smsTemplate" | "voice" | "ivrScriptId" | "callMode" | "status" | "twilioSid" | "subaccountSid" | "phoneNumber" | "provider"
       | "forwardingEnabled" | "forwardToNumber" | "forwardStart" | "forwardEnd"
       | "dndEnabled" | "dndStart" | "dndEnd" | "tzOffsetMinutes"
     >
@@ -622,6 +632,7 @@ export async function updateVirtualNumber(
     if (patch.smsTemplate !== undefined) row.sms_template = patch.smsTemplate;
     if (patch.voice !== undefined) row.voice = patch.voice;
     if (patch.ivrScriptId !== undefined) row.ivr_script_id = patch.ivrScriptId;
+    if (patch.callMode !== undefined) row.call_mode = patch.callMode;
     if (patch.status !== undefined) row.status = patch.status;
     if (patch.twilioSid !== undefined) row.twilio_sid = patch.twilioSid;
     if (patch.subaccountSid !== undefined) row.subaccount_sid = patch.subaccountSid;

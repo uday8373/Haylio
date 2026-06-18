@@ -32,6 +32,58 @@ export function isValidVoice(id: unknown): id is string {
   return typeof id === "string" && IVR_VOICES.some((v) => v.id === id);
 }
 
+/**
+ * Call-handling modes offered in the dashboard. One is active per number.
+ * Pure metadata (labels/copy/flags) consumed by the Call settings UI and the
+ * PATCH validation; the actual TwiML branching lives in the voice webhook.
+ */
+export type CallHandlingModeId = "ivr" | "missed_call" | "forward";
+
+export interface CallModeOption {
+  id: CallHandlingModeId;
+  label: string;
+  /** One-line summary shown under the mode title. */
+  description: string;
+  /** What the caller experiences, shown in the selected-mode detail. */
+  callerExperience: string;
+  /** True if the mode can consume the owner's talk-time / forwarding minutes. */
+  chargeable: boolean;
+}
+
+export const CALL_MODES: CallModeOption[] = [
+  {
+    id: "ivr",
+    label: "IVR — press 1 for a link",
+    description: "Caller hears your greeting and presses 1 to get the support link by text.",
+    callerExperience: "Hears your greeting, presses 1, then receives the support link by SMS.",
+    chargeable: false,
+  },
+  {
+    id: "missed_call",
+    label: "Missed call — auto-disconnect",
+    description: "Call drops instantly and the caller is texted your support link. Your phone never rings.",
+    callerExperience: "Call disconnects right away (no audio); your support link arrives by SMS moments later.",
+    chargeable: false,
+  },
+  {
+    id: "forward",
+    label: "Forward to my phone",
+    description: "Rings your real phone so you can talk to the caller directly.",
+    callerExperience: "Hears ringing and is connected to you. If you miss it, they get the support link by text.",
+    chargeable: true,
+  },
+];
+
+export const DEFAULT_CALL_MODE: CallHandlingModeId = "ivr";
+
+export function isValidCallMode(id: unknown): id is CallHandlingModeId {
+  return id === "ivr" || id === "missed_call" || id === "forward";
+}
+
+export function getCallMode(id: string | undefined): CallModeOption {
+  return CALL_MODES.find((m) => m.id === id) ?? CALL_MODES[0];
+}
+
 export interface IvrScript {
   id: string;
   label: string;

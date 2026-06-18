@@ -67,6 +67,7 @@ create table if not exists public.virtual_numbers (
   sms_template text not null,
   voice text not null default 'Polly.Joanna-Neural',
   ivr_script_id text not null default 'friendly',
+  call_mode text not null default 'ivr',
   forwarding_enabled boolean not null default false,
   forward_to_number text not null default '',
   forward_start text not null default '09:00',

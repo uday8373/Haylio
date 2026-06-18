@@ -119,7 +119,7 @@ export interface RoutingDecision {
 
 /** Decide whether this call rings the owner's phone or goes straight to the SMS link. */
 export function decideRouting(vn: VirtualNumber, minutesUsed: number, now = new Date()): RoutingDecision {
-  if (!vn.forwardingEnabled || !vn.forwardToNumber) return { forward: false, reason: "forwarding_off" };
+  if (vn.callMode !== "forward" || !vn.forwardToNumber) return { forward: false, reason: "forwarding_off" };
   const m = localMinutes(now, vn.tzOffsetMinutes);
   if (vn.dndEnabled && withinWindow(vn.dndStart, vn.dndEnd, m)) return { forward: false, reason: "dnd" };
   if (!withinWindow(vn.forwardStart, vn.forwardEnd, m)) return { forward: false, reason: "outside_hours" };
@@ -146,6 +146,30 @@ const xmlEscape = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").
 /** A Polly voice id, falling back to the default if unset/invalid. */
 function sayVoice(voice?: string): string {
   return xmlEscape(isValidVoice(voice) ? voice : DEFAULT_VOICE);
+}
+
+/**
+ * How long a "missed call" rings before we drop it (seconds). The call is held
+ * in the ringing state for this long — the caller hears one or two rings — then
+ * it's rejected. Because the call is never answered, no talk-time is billed.
+ * Tunable via MISSED_CALL_RING_SECONDS (clamped to 1–12s; default 6 ≈ ~2 rings).
+ */
+export const MISSED_CALL_RING_SECONDS = Math.min(
+  12,
+  Math.max(1, Number(process.env.MISSED_CALL_RING_SECONDS) || 6)
+);
+
+/**
+ * TwiML for "missed call" mode: reject the call so it's never answered (no
+ * talk-time billed). The webhook holds the response for MISSED_CALL_RING_SECONDS
+ * first, so the caller hears a ring or two before it drops; the tracked
+ * support-link SMS is sent server-side beforehand.
+ */
+export function rejectTwiml(): string {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Reject reason="rejected"/>
+</Response>`;
 }
 
 /** TwiML for the intercept: professional greeting, then hang up. */

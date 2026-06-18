@@ -32,16 +32,23 @@ export async function POST(req: NextRequest) {
   }
 
   const result = await handleIncomingCall(vn, caller);
+
+  // Mode-aware explainer for the test result panel.
+  let modeNote: string | undefined;
+  if (vn.callMode === "forward" && vn.forwardToNumber) {
+    modeNote = `Forward mode is ON — real calls ring ${vn.forwardToNumber} first; this test exercised the SMS fallback that fires when the call isn't answered.`;
+  } else if (vn.callMode === "missed_call") {
+    modeNote = "Missed-call mode — on a real call the caller is disconnected instantly with no audio; only the support-link SMS below is sent.";
+  }
+
   return NextResponse.json({
+    callMode: vn.callMode,
     greeting: result.greeting,
     smsBody: result.smsBody,
     link: result.link,
     engagementId: result.engagement.id,
     smsStatus: result.engagement.smsStatus,
     smsError: result.smsError,
-    forwardingNote:
-      vn.forwardingEnabled && vn.forwardToNumber
-        ? `Forwarding is ON — real calls ring ${vn.forwardToNumber} first; this test exercised the missed-call SMS fallback.`
-        : undefined,
+    forwardingNote: modeNote,
   });
 }

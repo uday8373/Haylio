@@ -173,7 +173,15 @@ export interface VirtualNumber {
   voice: string;
   /** Predefined IVR wording preset (see IVR_SCRIPTS). */
   ivrScriptId: string;
-  /** Ring the owner's real number first (caller ID = the toll-free number). */
+  /**
+   * How inbound calls are handled (see CALL_MODES in src/lib/ivr.ts):
+   * - "ivr": greet the caller and ask them to press 1 to get the support link by text.
+   * - "missed_call": disconnect instantly (no audio) and text the support link — never rings
+   *   the owner, no talk-time (non-chargeable).
+   * - "forward": ring the owner's real phone so they can talk to the caller directly (chargeable).
+   */
+  callMode: CallHandlingMode;
+  /** Ring the owner's real number first (caller ID = the toll-free number). Kept in sync with callMode === "forward". */
   forwardingEnabled: boolean;
   forwardToNumber: string;
   /** Daily window when forwarding is active (HH:MM, owner's local time). */
@@ -187,6 +195,9 @@ export interface VirtualNumber {
   tzOffsetMinutes: number;
   createdAt: number;
 }
+
+/** How inbound calls to the toll-free number are handled. */
+export type CallHandlingMode = "ivr" | "missed_call" | "forward";
 
 export type CallOutcome = "texted" | "forwarded_answered" | "forwarded_missed";
 

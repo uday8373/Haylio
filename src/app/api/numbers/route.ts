@@ -8,7 +8,8 @@ import {
   twilioEnabled,
 } from "@/lib/telephony";
 import { DEFAULT_GREETING, DEFAULT_SMS_TEMPLATE, FORWARD_MINUTES_LIMIT, forwardMinutesUsed } from "@/lib/engagement";
-import { isValidScriptId, isValidVoice } from "@/lib/ivr";
+import { isValidCallMode, isValidScriptId, isValidVoice } from "@/lib/ivr";
+import type { CallHandlingMode } from "@/lib/types";
 import { billingEnabled } from "@/lib/billing";
 
 /** Current business's virtual number (or null). */
@@ -100,7 +101,7 @@ export async function PATCH(req: NextRequest) {
   const body = await req.json().catch(() => null);
   const patch: {
     greeting?: string; smsTemplate?: string; voice?: string; ivrScriptId?: string;
-    forwardingEnabled?: boolean; forwardToNumber?: string;
+    callMode?: CallHandlingMode; forwardingEnabled?: boolean; forwardToNumber?: string;
     forwardStart?: string; forwardEnd?: string; dndEnabled?: boolean; dndStart?: string; dndEnd?: string;
     tzOffsetMinutes?: number;
   } = {};
@@ -109,7 +110,15 @@ export async function PATCH(req: NextRequest) {
   if (typeof body?.smsTemplate === "string") patch.smsTemplate = body.smsTemplate.slice(0, 320);
   if (isValidVoice(body?.voice)) patch.voice = body.voice;
   if (isValidScriptId(body?.ivrScriptId)) patch.ivrScriptId = body.ivrScriptId;
-  if (typeof body?.forwardingEnabled === "boolean") patch.forwardingEnabled = body.forwardingEnabled;
+  // Call-handling mode is the single source of truth; keep forwardingEnabled in
+  // sync so legacy logic (minutes meter, simulator notes) stays consistent.
+  if (isValidCallMode(body?.callMode)) {
+    patch.callMode = body.callMode;
+    patch.forwardingEnabled = body.callMode === "forward";
+  } else if (typeof body?.forwardingEnabled === "boolean") {
+    patch.forwardingEnabled = body.forwardingEnabled;
+    patch.callMode = body.forwardingEnabled ? "forward" : "ivr";
+  }
   if (isHHMM(body?.forwardStart)) patch.forwardStart = body.forwardStart;
   if (isHHMM(body?.forwardEnd)) patch.forwardEnd = body.forwardEnd;
   if (typeof body?.dndEnabled === "boolean") patch.dndEnabled = body.dndEnabled;
@@ -128,10 +137,10 @@ export async function PATCH(req: NextRequest) {
     }
     patch.forwardToNumber = raw;
   }
-  const enabling = patch.forwardingEnabled ?? vn.forwardingEnabled;
+  const effectiveMode = patch.callMode ?? vn.callMode;
   const target = patch.forwardToNumber ?? vn.forwardToNumber;
-  if (enabling && !target) {
-    return NextResponse.json({ error: "Add the number to forward calls to before enabling forwarding." }, { status: 400 });
+  if (effectiveMode === "forward" && !target) {
+    return NextResponse.json({ error: "Add the number to forward calls to before choosing Forward mode." }, { status: 400 });
   }
   await updateVirtualNumber(vn.id, patch);
 
