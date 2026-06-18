@@ -193,6 +193,27 @@ export interface VirtualNumber {
   dndEnd: string;
   /** Owner's timezone offset (minutes, as from Date.getTimezoneOffset()). */
   tzOffsetMinutes: number;
+  /**
+   * WhatsApp sender address for outbound messages, e.g. "whatsapp:+14155238886".
+   * Empty ⇒ use the platform's Twilio WhatsApp Sandbox sender (see lib/whatsapp.ts).
+   */
+  whatsAppFrom: string;
+  createdAt: number;
+}
+
+export type WhatsAppStatus = "queued" | "sent" | "delivered" | "failed";
+
+/** One outbound WhatsApp message sent to a customer from the dashboard. */
+export interface WhatsAppMessage {
+  id: string;
+  businessId: string;
+  /** Customer's WhatsApp number in E.164 (no "whatsapp:" prefix). */
+  toNumber: string;
+  toLast4: string;
+  body: string;
+  status: WhatsAppStatus;
+  sid?: string;
+  error?: string;
   createdAt: number;
 }
 

@@ -76,8 +76,24 @@ create table if not exists public.virtual_numbers (
   dnd_start text not null default '21:00',
   dnd_end text not null default '08:00',
   tz_offset_minutes integer not null default 0,
+  whats_app_from text not null default '',
   created_at bigint not null
 );
+
+create table if not exists public.whatsapp_messages (
+  id text primary key,
+  business_id text not null references public.businesses(id) on delete cascade,
+  to_number text not null,
+  to_last4 text not null,
+  body text not null,
+  status text not null default 'queued',
+  sid text,
+  error text,
+  created_at bigint not null
+);
+
+create index if not exists whatsapp_messages_business_id_idx
+  on public.whatsapp_messages (business_id, created_at desc);
 
 create table if not exists public.engagements (
   id text primary key,
@@ -177,6 +193,7 @@ create table if not exists public.lead_tags (
 
 alter table public.virtual_numbers disable row level security;
 alter table public.engagements disable row level security;
+alter table public.whatsapp_messages disable row level security;
 alter table public.sms_verifications disable row level security;
 alter table public.optin_uploads disable row level security;
 alter table public.lead_tags disable row level security;

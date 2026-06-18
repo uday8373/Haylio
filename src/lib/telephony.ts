@@ -53,6 +53,11 @@ interface TelephonyProvider {
   name: "twilio" | "simulator";
   /** Send an SMS, optionally from a specific subaccount. */
   sendSms(opts: { from: string; to: string; body: string; accountSid?: string }): Promise<SmsResult>;
+  /**
+   * Send a WhatsApp message. `from` and `to` must already carry the
+   * "whatsapp:" prefix Twilio expects (see lib/whatsapp.ts).
+   */
+  sendWhatsApp(opts: { from: string; to: string; body: string; accountSid?: string }): Promise<SmsResult>;
 }
 
 // ------------------------------------------------------------- Twilio REST
@@ -103,6 +108,14 @@ async function twilioRootFetch(path: string, init: RequestInit = {}): Promise<Re
 const twilioProvider: TelephonyProvider = {
   name: "twilio",
   async sendSms({ from, to, body, accountSid }) {
+    const params = new URLSearchParams({ From: from, To: to, Body: body });
+    const wb = publicWebhookBase();
+    if (wb) params.set("StatusCallback", `${wb}/api/twilio/sms-status`);
+    const msg = await twilioFetch("/Messages.json", { method: "POST", body: params }, accountSid ?? SID!);
+    return { sid: msg.sid as string, status: "sent" };
+  },
+  async sendWhatsApp({ from, to, body, accountSid }) {
+    // Same Messages endpoint as SMS — the "whatsapp:" prefix on From/To routes it.
     const params = new URLSearchParams({ From: from, To: to, Body: body });
     const wb = publicWebhookBase();
     if (wb) params.set("StatusCallback", `${wb}/api/twilio/sms-status`);
@@ -346,6 +359,9 @@ const simulatorProvider: TelephonyProvider = {
   name: "simulator",
   async sendSms() {
     return { sid: "sim_" + crypto.randomBytes(8).toString("hex"), status: "delivered" };
+  },
+  async sendWhatsApp() {
+    return { sid: "simwa_" + crypto.randomBytes(8).toString("hex"), status: "delivered" };
   },
 };
 

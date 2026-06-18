@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { sbDelete, sbInsert, sbSelect, sbUpdate, supabaseEnabled } from "./supabase";
 import { DEFAULT_VOICE, DEFAULT_IVR_SCRIPT_ID } from "./ivr";
-import type { Business, Conversation, Engagement, Message, PublicBusiness, Channel, VirtualNumber, CallHandlingMode, SmsVerification, VisitorMeta, LeadTag, LeadTagRecord, CalendarAccount, ConversationTag, TeamMember, TeamRole } from "./types";
+import type { Business, Conversation, Engagement, Message, PublicBusiness, Channel, VirtualNumber, CallHandlingMode, WhatsAppMessage, SmsVerification, VisitorMeta, LeadTag, LeadTagRecord, CalendarAccount, ConversationTag, TeamMember, TeamRole } from "./types";
 
 /**
  * Data layer. Uses Supabase (PostgREST) when SUPABASE_URL/SUPABASE_ANON_KEY
@@ -104,6 +104,7 @@ interface MemStore {
   sessions: Map<string, SessionRecord>;
   virtualNumbers: Map<string, VirtualNumber>;
   engagements: Map<string, Engagement>;
+  whatsAppMessages: Map<string, WhatsAppMessage>;
   smsVerifications: Map<string, SmsVerification>;
   optinUploads: Map<string, OptinUpload>;
   leadTags: Map<string, LeadTagRecord>;
@@ -130,6 +131,7 @@ function seed(): MemStore {
     sessions: new Map(),
     virtualNumbers: new Map(),
     engagements: new Map(),
+    whatsAppMessages: new Map(),
     smsVerifications: new Map(),
     optinUploads: new Map(),
     leadTags: new Map(),
@@ -530,6 +532,7 @@ type VnRow = {
   forward_start: string | null; forward_end: string | null;
   dnd_enabled: boolean | null; dnd_start: string | null; dnd_end: string | null;
   tz_offset_minutes: number | null;
+  whats_app_from: string | null;
   created_at: number;
 };
 
@@ -556,6 +559,7 @@ function rowToVn(r: VnRow): VirtualNumber {
     dndStart: r.dnd_start ?? "21:00",
     dndEnd: r.dnd_end ?? "08:00",
     tzOffsetMinutes: r.tz_offset_minutes ?? 0,
+    whatsAppFrom: r.whats_app_from ?? "",
     createdAt: Number(r.created_at),
   };
 }
@@ -576,7 +580,7 @@ export async function getNumberByPhone(phoneNumber: string): Promise<VirtualNumb
   return [...mem().virtualNumbers.values()].find((v) => v.phoneNumber === phoneNumber);
 }
 
-type VnDefaults = "voice" | "ivrScriptId" | "callMode" | "forwardingEnabled" | "forwardToNumber" | "forwardStart" | "forwardEnd" | "dndEnabled" | "dndStart" | "dndEnd" | "tzOffsetMinutes";
+type VnDefaults = "voice" | "ivrScriptId" | "callMode" | "forwardingEnabled" | "forwardToNumber" | "forwardStart" | "forwardEnd" | "dndEnabled" | "dndStart" | "dndEnd" | "tzOffsetMinutes" | "whatsAppFrom";
 
 export async function createVirtualNumber(vn: Omit<VirtualNumber, "id" | "createdAt" | VnDefaults>): Promise<VirtualNumber> {
   const full: VirtualNumber = {
@@ -592,6 +596,7 @@ export async function createVirtualNumber(vn: Omit<VirtualNumber, "id" | "create
     dndStart: "21:00",
     dndEnd: "08:00",
     tzOffsetMinutes: 0,
+    whatsAppFrom: "",
     id: uid("vn_"),
     createdAt: Date.now(),
   };
@@ -607,6 +612,7 @@ export async function createVirtualNumber(vn: Omit<VirtualNumber, "id" | "create
       forward_start: full.forwardStart, forward_end: full.forwardEnd,
       dnd_enabled: false, dnd_start: full.dndStart, dnd_end: full.dndEnd,
       tz_offset_minutes: 0,
+      whats_app_from: full.whatsAppFrom,
       created_at: full.createdAt,
     });
   } else {
@@ -622,7 +628,7 @@ export async function updateVirtualNumber(
       VirtualNumber,
       | "greeting" | "smsTemplate" | "voice" | "ivrScriptId" | "callMode" | "status" | "twilioSid" | "subaccountSid" | "phoneNumber" | "provider"
       | "forwardingEnabled" | "forwardToNumber" | "forwardStart" | "forwardEnd"
-      | "dndEnabled" | "dndStart" | "dndEnd" | "tzOffsetMinutes"
+      | "dndEnabled" | "dndStart" | "dndEnd" | "tzOffsetMinutes" | "whatsAppFrom"
     >
   >
 ): Promise<void> {
@@ -646,6 +652,7 @@ export async function updateVirtualNumber(
     if (patch.dndStart !== undefined) row.dnd_start = patch.dndStart;
     if (patch.dndEnd !== undefined) row.dnd_end = patch.dndEnd;
     if (patch.tzOffsetMinutes !== undefined) row.tz_offset_minutes = patch.tzOffsetMinutes;
+    if (patch.whatsAppFrom !== undefined) row.whats_app_from = patch.whatsAppFrom;
     await sbUpdate("virtual_numbers", `id=eq.${encodeURIComponent(id)}`, row);
     return;
   }
@@ -733,6 +740,62 @@ export async function listEngagements(businessId: string): Promise<Engagement[]>
   return [...mem().engagements.values()]
     .filter((e) => e.businessId === businessId)
     .sort((a, b) => b.callAt - a.callAt);
+}
+
+// --------------------------------------------------------- whatsapp messages
+
+type WaRow = {
+  id: string; business_id: string; to_number: string; to_last4: string;
+  body: string; status: WhatsAppMessage["status"]; sid: string | null;
+  error: string | null; created_at: number;
+};
+
+function rowToWa(r: WaRow): WhatsAppMessage {
+  return {
+    id: r.id, businessId: r.business_id, toNumber: r.to_number, toLast4: r.to_last4,
+    body: r.body, status: r.status, sid: r.sid ?? undefined, error: r.error ?? undefined,
+    createdAt: Number(r.created_at),
+  };
+}
+
+export async function createWhatsAppMessage(input: {
+  businessId: string; toNumber: string; body: string;
+  status: WhatsAppMessage["status"]; sid?: string; error?: string;
+}): Promise<WhatsAppMessage> {
+  const msg: WhatsAppMessage = {
+    id: uid("wa_"),
+    businessId: input.businessId,
+    toNumber: input.toNumber,
+    toLast4: input.toNumber.slice(-4),
+    body: input.body,
+    status: input.status,
+    sid: input.sid,
+    error: input.error,
+    createdAt: Date.now(),
+  };
+  if (supabaseEnabled) {
+    await sbInsert("whatsapp_messages", {
+      id: msg.id, business_id: msg.businessId, to_number: msg.toNumber, to_last4: msg.toLast4,
+      body: msg.body, status: msg.status, sid: msg.sid ?? null, error: msg.error ?? null,
+      created_at: msg.createdAt,
+    });
+  } else {
+    mem().whatsAppMessages.set(msg.id, msg);
+  }
+  return msg;
+}
+
+export async function listWhatsAppMessages(businessId: string): Promise<WhatsAppMessage[]> {
+  if (supabaseEnabled) {
+    const rows = await sbSelect<WaRow>(
+      "whatsapp_messages",
+      `business_id=eq.${encodeURIComponent(businessId)}&order=created_at.desc&limit=100`
+    );
+    return rows.map(rowToWa);
+  }
+  return [...mem().whatsAppMessages.values()]
+    .filter((m) => m.businessId === businessId)
+    .sort((a, b) => b.createdAt - a.createdAt);
 }
 
 export async function updateEngagement(

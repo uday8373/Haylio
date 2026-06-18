@@ -9,6 +9,7 @@ import {
 } from "@/lib/telephony";
 import { DEFAULT_GREETING, DEFAULT_SMS_TEMPLATE, FORWARD_MINUTES_LIMIT, forwardMinutesUsed } from "@/lib/engagement";
 import { isValidCallMode, isValidScriptId, isValidVoice } from "@/lib/ivr";
+import { isValidWhatsAppSender, stripWhatsAppPrefix } from "@/lib/whatsapp";
 import type { CallHandlingMode } from "@/lib/types";
 import { billingEnabled } from "@/lib/billing";
 
@@ -103,7 +104,7 @@ export async function PATCH(req: NextRequest) {
     greeting?: string; smsTemplate?: string; voice?: string; ivrScriptId?: string;
     callMode?: CallHandlingMode; forwardingEnabled?: boolean; forwardToNumber?: string;
     forwardStart?: string; forwardEnd?: string; dndEnabled?: boolean; dndStart?: string; dndEnd?: string;
-    tzOffsetMinutes?: number;
+    tzOffsetMinutes?: number; whatsAppFrom?: string;
   } = {};
   const isHHMM = (s: unknown): s is string => typeof s === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(s);
   if (typeof body?.greeting === "string") patch.greeting = body.greeting.slice(0, 500);
@@ -126,6 +127,16 @@ export async function PATCH(req: NextRequest) {
   if (isHHMM(body?.dndEnd)) patch.dndEnd = body.dndEnd;
   if (typeof body?.tzOffsetMinutes === "number" && Math.abs(body.tzOffsetMinutes) <= 14 * 60) {
     patch.tzOffsetMinutes = Math.round(body.tzOffsetMinutes);
+  }
+  if (body?.whatsAppFrom !== undefined) {
+    if (!isValidWhatsAppSender(body.whatsAppFrom)) {
+      return NextResponse.json(
+        { error: "WhatsApp sender must be a number in international format, e.g. +1 415 523 8886." },
+        { status: 400 }
+      );
+    }
+    // Store the bare E.164 (or empty to fall back to the sandbox sender).
+    patch.whatsAppFrom = stripWhatsAppPrefix(String(body.whatsAppFrom));
   }
   if (typeof body?.forwardToNumber === "string") {
     const raw = body.forwardToNumber.replace(/[^\d+]/g, "");

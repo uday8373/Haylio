@@ -1,12 +1,14 @@
 import Link from "next/link";
 import { currentBusiness } from "@/lib/session";
-import { getNumberByBusiness, getSmsVerification, listEngagements } from "@/lib/store";
-import { twilioEnabled } from "@/lib/telephony";
+import { getNumberByBusiness, getSmsVerification, listEngagements, listWhatsAppMessages } from "@/lib/store";
+import { twilioEnabled, baseUrl } from "@/lib/telephony";
 import { ShieldCheckIcon, TrendingUpIcon } from "@/components/icons";
 import { NumberCard, SimulateCall } from "@/components/dashboard/CallsClient";
+import { WhatsAppPanel, type WhatsAppLogEntry } from "@/components/dashboard/WhatsAppClient";
 import { Tabs } from "@/components/dashboard/Tabs";
 import { CallLog, type CallLogEntry } from "@/components/dashboard/CallLog";
 import { FORWARD_MINUTES_LIMIT, forwardMinutesUsed } from "@/lib/engagement";
+import { WHATSAPP_SANDBOX_NUMBER, WHATSAPP_SANDBOX_JOIN_HINT, isUsingSandbox } from "@/lib/whatsapp";
 import { billingEnabled } from "@/lib/billing";
 import type { SmsVerificationStatus } from "@/lib/types";
 
@@ -16,6 +18,7 @@ export default async function CallsPage() {
   const biz = (await currentBusiness())!;
   const vn = await getNumberByBusiness(biz.id);
   const engagements = await listEngagements(biz.id);
+  const whatsAppMessages = await listWhatsAppMessages(biz.id);
   const minutesUsed = vn ? await forwardMinutesUsed(biz.id) : 0;
   const verification = await getSmsVerification(biz.id);
   const verificationStatus: SmsVerificationStatus = verification?.status ?? "not_submitted";
@@ -129,12 +132,36 @@ export default async function CallsPage() {
     </div>
   );
 
+  // WhatsApp tab — connect a sender + message customers via Twilio WhatsApp.
+  const whatsAppLog: WhatsAppLogEntry[] = whatsAppMessages.map((m) => ({
+    id: m.id,
+    toLast4: m.toLast4,
+    body: m.body,
+    status: m.status,
+    error: m.error,
+    createdAt: m.createdAt,
+  }));
+
+  const whatsAppPanel = (
+    <WhatsAppPanel
+      hasNumber={Boolean(vn)}
+      businessName={biz.name}
+      supportLink={`${baseUrl()}/b/${biz.handle}`}
+      whatsAppFrom={vn?.whatsAppFrom ?? ""}
+      usingSandbox={isUsingSandbox(vn?.whatsAppFrom)}
+      sandboxNumber={WHATSAPP_SANDBOX_NUMBER}
+      sandboxHint={WHATSAPP_SANDBOX_JOIN_HINT}
+      messages={whatsAppLog}
+    />
+  );
+
   return (
     <div className="max-w-4xl">
       <Tabs
         tabs={[
           { id: "settings", label: "Call settings", content: settingsPanel },
           { id: "logs", label: "Call logs", content: logsPanel },
+          { id: "whatsapp", label: "WhatsApp", content: whatsAppPanel },
         ]}
       />
     </div>
