@@ -14,6 +14,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [otp, setOtp] = useState("");
   const [devCode, setDevCode] = useState<string | null>(null);
+  const [isDemo, setIsDemo] = useState(false);
   const [resent, setResent] = useState(false);
   const [cooldown, setCooldown] = useState(0);
   const [error, setError] = useState("");
@@ -35,30 +36,42 @@ export default function LoginPage() {
     return () => clearTimeout(t);
   }, [cooldown]);
 
-  async function requestCode() {
+  async function requestCode(address: string = email) {
     const res = await fetch("/api/auth/otp", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email, intent: "login" }),
+      body: JSON.stringify({ email: address, intent: "login" }),
     });
     const data = await res.json().catch(() => ({}));
     return { ok: res.ok, data };
   }
 
-  async function sendCode(e: React.FormEvent) {
-    e.preventDefault();
+  async function startLogin(address: string) {
     setBusy(true);
     setError("");
-    const { ok, data } = await requestCode().catch(() => ({ ok: false, data: {} as Record<string, string> }));
+    const { ok, data } = await requestCode(address).catch(() => ({ ok: false, data: {} as Record<string, string> }));
     setBusy(false);
     if (!ok) {
       setError(data.error ?? "Couldn't send the code. Try again in a moment.");
       return;
     }
+    const demo = Boolean(data.demo);
+    setIsDemo(demo);
     setDevCode(data.devCode ?? null);
-    setOtp("");
+    // The demo code is shown on the page, so fill it in too.
+    setOtp(demo && data.devCode ? String(data.devCode) : "");
     setCooldown(RESEND_SECONDS);
     setStep("code");
+  }
+
+  function sendCode(e: React.FormEvent) {
+    e.preventDefault();
+    startLogin(email);
+  }
+
+  function startDemo() {
+    setEmail(DEMO_EMAIL);
+    startLogin(DEMO_EMAIL);
   }
 
   async function resendCode() {
@@ -70,6 +83,7 @@ export default function LoginPage() {
       return;
     }
     setDevCode(data.devCode ?? null);
+    if (data.demo && data.devCode) setOtp(String(data.devCode));
     setCooldown(RESEND_SECONDS);
     setResent(true);
     setTimeout(() => setResent(false), 2500);
@@ -151,16 +165,12 @@ export default function LoginPage() {
                   or
                   <span className="h-px flex-1 bg-[var(--line)]" />
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEmail(DEMO_EMAIL);
-                    setError("");
-                  }}
-                  className="lp-btn lp-btn-ghost w-full mt-6 !py-3.5"
-                >
+                <button type="button" onClick={startDemo} disabled={busy} className="lp-btn lp-btn-ghost w-full mt-6 !py-3.5">
                   Use the demo account
                 </button>
+                <p className="mt-2 text-[13px] text-[var(--muted)] text-center">
+                  Explore a sample café&apos;s dashboard. No email needed.
+                </p>
 
                 <p className="mt-8 text-[14.5px] text-[var(--muted)]">
                   New to Haylio?{" "}
@@ -181,16 +191,24 @@ export default function LoginPage() {
                 >
                   Use a different email
                 </button>
-                <h1 className="mt-4 lp-display text-[2.25rem] leading-[1.1] font-semibold">Check your email</h1>
+                <h1 className="mt-4 lp-display text-[2.25rem] leading-[1.1] font-semibold">
+                  {isDemo ? "Your demo code is ready" : "Check your email"}
+                </h1>
                 <p className="mt-3 text-[15.5px] leading-[1.6] text-[var(--muted)]">
-                  We sent a 6-digit code to <span className="font-semibold text-[var(--ink)] break-all">{email}</span>. It
-                  expires in 10 minutes.
+                  {isDemo ? (
+                    <>The demo account doesn&apos;t receive email, so here&apos;s its code. It expires in 10 minutes.</>
+                  ) : (
+                    <>
+                      We sent a 6-digit code to <span className="font-semibold text-[var(--ink)] break-all">{email}</span>. It
+                      expires in 10 minutes.
+                    </>
+                  )}
                 </p>
 
                 {devCode && (
-                  <div className="mt-6 rounded-2xl border border-[#f6d3c6] bg-[#fdf1ec] px-4 py-3 text-[14px] text-[var(--signal-ink)]">
-                    Test mode, no email provider is set up. Your code is{" "}
-                    <span className="font-semibold tracking-[0.2em] tabular-nums">{devCode}</span>
+                  <div className="mt-6 rounded-2xl border border-[#f6d3c6] bg-[#fdf1ec] px-4 py-3.5 text-[14px] text-[var(--signal-ink)]">
+                    {isDemo ? "Demo code, already filled in below:" : "Test mode, no email provider is set up. Your code is:"}
+                    <span className="block mt-1 text-[1.5rem] font-semibold tracking-[0.3em] tabular-nums text-[var(--ink)]">{devCode}</span>
                   </div>
                 )}
 
@@ -225,12 +243,12 @@ export default function LoginPage() {
                 </form>
 
                 <p className="mt-6 text-[14.5px] text-[var(--muted)]" aria-live="polite">
-                  Didn&apos;t get it? Check your spam folder, or{" "}
+                  {isDemo ? "Code expired? " : "Didn't get it? Check your spam folder, or "}
                   {cooldown > 0 ? (
-                    <span>resend in {cooldown}s</span>
+                    <span>{isDemo ? "New code" : "resend"} in {cooldown}s</span>
                   ) : (
                     <button type="button" onClick={resendCode} className="font-semibold text-[var(--ink)] underline underline-offset-4">
-                      resend the code
+                      {isDemo ? "Get a new code" : "resend the code"}
                     </button>
                   )}
                   {resent && <span className="ml-2 font-semibold text-[var(--safe)]">Sent</span>}

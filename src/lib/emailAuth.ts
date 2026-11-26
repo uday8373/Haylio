@@ -85,3 +85,49 @@ export async function verifyEmailOtp(email: string, token: string): Promise<bool
   if (ok) challenges().delete(key);
   return ok;
 }
+
+/* ------------------------------------------------------------------ */
+/* Demo account                                                        */
+/* ------------------------------------------------------------------ */
+/*
+ * demo@haylio.app never receives email. Its code is generated here, shown on
+ * the login page, and checked statelessly: the server sets an httpOnly cookie
+ * holding the expiry plus an HMAC of (code, expiry). That works on serverless
+ * hosts like Vercel, where the request that sends the code and the request
+ * that verifies it can land on different instances.
+ */
+
+export const DEMO_EMAIL = "demo@haylio.app";
+export const DEMO_OTP_COOKIE = "haylio_demo_otp";
+export const DEMO_OTP_TTL_SECONDS = CODE_TTL_MS / 1000;
+
+export function isDemoEmail(email: string): boolean {
+  return normalize(email) === DEMO_EMAIL;
+}
+
+function demoSecret(): string {
+  return process.env.SESSION_SECRET || process.env.SUPABASE_ANON_KEY || "haylio-demo-otp";
+}
+
+function signDemo(code: string, expiresAt: number): string {
+  return crypto.createHmac("sha256", demoSecret()).update(`${code}.${expiresAt}`).digest("hex");
+}
+
+/** Create a demo code and the cookie value that proves it was issued. */
+export function issueDemoOtp(): { code: string; cookie: string } {
+  const code = String(crypto.randomInt(100000, 1000000));
+  const expiresAt = Date.now() + CODE_TTL_MS;
+  return { code, cookie: `${expiresAt}.${signDemo(code, expiresAt)}` };
+}
+
+/** Check a demo code against the cookie set by issueDemoOtp. */
+export function verifyDemoOtp(cookie: string | undefined, token: string): boolean {
+  const code = (token ?? "").trim();
+  if (!cookie || !/^\d{6}$/.test(code)) return false;
+  const [expRaw, sig] = cookie.split(".");
+  const expiresAt = Number(expRaw);
+  if (!sig || !Number.isFinite(expiresAt) || expiresAt < Date.now()) return false;
+  const expected = Buffer.from(signDemo(code, expiresAt), "hex");
+  const given = Buffer.from(sig, "hex");
+  return expected.length === given.length && crypto.timingSafeEqual(expected, given);
+}

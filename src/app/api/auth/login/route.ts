@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBusinessByEmail, getTeamMemberByEmail, createSession } from "@/lib/store";
 import { SESSION_COOKIE } from "@/lib/session";
-import { verifyEmailOtp } from "@/lib/emailAuth";
+import { DEMO_OTP_COOKIE, isDemoEmail, verifyDemoOtp, verifyEmailOtp } from "@/lib/emailAuth";
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
@@ -21,7 +21,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Accept your team invitation first, then log in." }, { status: 403 });
   }
 
-  const verified = await verifyEmailOtp(e, String(otp));
+  const demo = isDemoEmail(e);
+  const verified = demo
+    ? verifyDemoOtp(req.cookies.get(DEMO_OTP_COOKIE)?.value, String(otp))
+    : await verifyEmailOtp(e, String(otp));
   if (!verified) {
     return NextResponse.json({ error: "That code is incorrect or expired. Request a new one." }, { status: 401 });
   }
@@ -32,6 +35,8 @@ export async function POST(req: NextRequest) {
     : { role: member!.role, email: member!.email, memberId: member!.id };
   const token = await createSession(businessId, actor);
   const res = NextResponse.json({ ok: true });
+  // A demo code works once.
+  if (demo) res.cookies.set(DEMO_OTP_COOKIE, "", { path: "/api/auth", maxAge: 0 });
   res.cookies.set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",

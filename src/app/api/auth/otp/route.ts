@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBusinessByEmail, getTeamMemberByEmail } from "@/lib/store";
-import { sendEmailOtp } from "@/lib/emailAuth";
+import { DEMO_OTP_COOKIE, DEMO_OTP_TTL_SECONDS, isDemoEmail, issueDemoOtp, sendEmailOtp } from "@/lib/emailAuth";
 
 const EMAIL_RE = /^\S+@\S+\.\S+$/;
 
@@ -44,6 +44,21 @@ export async function POST(req: NextRequest) {
       }
       return NextResponse.json({ error: "No account found for that email — sign up first." }, { status: 404 });
     }
+  }
+
+  // Demo account: no email is sent. The code goes back to the page, and a
+  // signed cookie lets /api/auth/login verify it on any server instance.
+  if (intent === "login" && isDemoEmail(email)) {
+    const { code, cookie } = issueDemoOtp();
+    const res = NextResponse.json({ ok: true, demo: true, devCode: code });
+    res.cookies.set(DEMO_OTP_COOKIE, cookie, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      path: "/api/auth",
+      maxAge: DEMO_OTP_TTL_SECONDS,
+    });
+    return res;
   }
 
   try {
