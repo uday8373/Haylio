@@ -362,7 +362,7 @@ export default function Landing() {
       {/* ===================== HERO ===================== */}
       <section className="max-w-6xl mx-auto px-5 md:px-8 pt-14 md:pt-20 pb-20 grid grid-cols-1 lg:grid-cols-[1.1fr_1fr] gap-14 lg:gap-16 items-start">
         <div className="min-w-0 lg:pt-10">
-          <h1 className="lp-display text-[2.6rem] leading-[1.04] md:text-[4rem] font-bold">
+          <h1 className="lp-display text-[2.6rem] leading-[1.05] md:text-[3.9rem] font-semibold">
             Let customers reach you without giving out your mobile number.
           </h1>
           <p className="mt-6 text-[17px] leading-[1.6] text-[var(--muted)] max-w-[34rem]">
@@ -420,7 +420,7 @@ export default function Landing() {
       {/* ===================== WHAT YOU GET ===================== */}
       <section id="what" className="scroll-mt-16 max-w-6xl mx-auto px-5 md:px-8 py-24">
         <div className="max-w-2xl">
-          <h2 className="lp-display text-[2.1rem] md:text-[2.75rem] leading-[1.08] font-bold">
+          <h2 className="lp-display text-[2.1rem] md:text-[2.75rem] leading-[1.08] font-semibold">
             What Haylio gives your business
           </h2>
           <p className="mt-4 text-[17px] leading-[1.6] text-[var(--muted)]">
@@ -433,7 +433,7 @@ export default function Landing() {
               <span className="w-10 h-10 rounded-full bg-[#fde6dd] text-[var(--signal-ink)] flex items-center justify-center">
                 <p.icon size={18} />
               </span>
-              <h3 className="lp-display mt-5 text-[1.45rem] font-bold">{p.title}</h3>
+              <h3 className="lp-display mt-5 text-[1.45rem] font-semibold">{p.title}</h3>
               <p className="mt-3 text-[15px] leading-[1.65] text-[var(--muted)]">{p.body}</p>
               <ul className="mt-5 flex flex-wrap gap-1.5">
                 {p.items.map((i) => (
@@ -451,7 +451,7 @@ export default function Landing() {
       <section id="how" className="scroll-mt-16 bg-white border-y border-[var(--line)]">
         <div className="max-w-6xl mx-auto px-5 md:px-8 py-24">
           <div className="max-w-2xl">
-            <h2 className="lp-display text-[2.1rem] md:text-[2.75rem] leading-[1.08] font-bold">How it works</h2>
+            <h2 className="lp-display text-[2.1rem] md:text-[2.75rem] leading-[1.08] font-semibold">How it works</h2>
             <p className="mt-4 text-[17px] leading-[1.6] text-[var(--muted)]">
               Most businesses are set up in about ten minutes. You don&apos;t need new hardware or a new SIM.
             </p>
@@ -475,7 +475,7 @@ export default function Landing() {
           {/* Customer's side */}
           <div className="mt-24 rounded-[28px] bg-[var(--paper)] px-6 py-12 md:px-14 md:py-14 grid md:grid-cols-[1fr_auto] gap-12 items-center">
             <div className="max-w-md">
-              <h3 className="lp-display text-[1.9rem] leading-[1.12] font-bold">What your customers see</h3>
+              <h3 className="lp-display text-[1.9rem] leading-[1.12] font-semibold">What your customers see</h3>
               <p className="mt-4 text-[15.5px] leading-[1.65] text-[var(--muted)]">
                 Your link opens a page with your name, hours and the ways you&apos;ve chosen to be reached. Nothing to download,
                 and no phone number to copy.
@@ -507,7 +507,7 @@ export default function Landing() {
       {/* ===================== BENEFITS ===================== */}
       <section id="benefits" className="scroll-mt-16 max-w-6xl mx-auto px-5 md:px-8 py-24 grid lg:grid-cols-[0.8fr_1.2fr] gap-12 lg:gap-20">
         <div className="lg:sticky lg:top-28 self-start">
-          <h2 className="lp-display text-[2.1rem] md:text-[2.75rem] leading-[1.08] font-bold">What changes for your business</h2>
+          <h2 className="lp-display text-[2.1rem] md:text-[2.75rem] leading-[1.08] font-semibold">What changes for your business</h2>
           <p className="mt-4 text-[17px] leading-[1.6] text-[var(--muted)] max-w-md">
             Fewer interruptions, fewer lost customers, and a clear list of who to get back to.
           </p>
@@ -533,7 +533,7 @@ export default function Landing() {
       {/* ===================== FAQ ===================== */}
       <section id="faq" className="scroll-mt-16 bg-white border-y border-[var(--line)]">
         <div className="max-w-3xl mx-auto px-5 md:px-8 py-24">
-          <h2 className="lp-display text-[2.1rem] md:text-[2.75rem] leading-[1.08] font-bold">Questions businesses ask</h2>
+          <h2 className="lp-display text-[2.1rem] md:text-[2.75rem] leading-[1.08] font-semibold">Questions businesses ask</h2>
           <div className="lp-faq mt-10 border-t border-[var(--line)]">
             {faqs.map((f) => (
               <details key={f.q} className="border-b border-[var(--line)] group">
@@ -553,7 +553,7 @@ export default function Landing() {
       {/* ===================== CTA + FOOTER ===================== */}
       <section className="bg-[var(--ink)] text-white">
         <div className="max-w-6xl mx-auto px-5 md:px-8 pt-24 pb-16">
-          <h2 className="lp-display text-[2.4rem] md:text-[3.6rem] leading-[1.04] font-bold max-w-3xl">
+          <h2 className="lp-display text-[2.4rem] md:text-[3.6rem] leading-[1.04] font-semibold max-w-3xl">
             Take your mobile number off the internet.
           </h2>
           <p className="mt-5 text-[17px] leading-[1.6] text-white/70 max-w-xl">

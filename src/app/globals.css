@@ -445,13 +445,13 @@ body {
   --safe: #1f8a5b;
   background: var(--paper);
   color: var(--ink);
-  font-family: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  font-family: "Geist", "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  font-feature-settings: "ss01", "cv11";
 }
 .lp ::selection { background: rgba(232, 85, 47, 0.22); color: var(--ink); }
 .lp-display {
-  font-family: "Bricolage Grotesque", "Inter", ui-sans-serif, sans-serif;
-  font-optical-sizing: auto;
-  letter-spacing: -0.025em;
+  font-family: "Geist", "Inter", ui-sans-serif, sans-serif;
+  letter-spacing: -0.035em;
 }
 .lp a:focus-visible,
 .lp button:focus-visible,
