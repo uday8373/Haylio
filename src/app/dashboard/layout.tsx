@@ -1,12 +1,12 @@
 import { redirect } from "next/navigation";
 import { currentBusiness } from "@/lib/session";
-import { listConversations } from "@/lib/store";
+import { countUnreadConversations } from "@/lib/store";
 import TopNav from "@/components/dashboard/TopNav";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const biz = await currentBusiness();
   if (!biz) redirect("/login");
-  const unread = (await listConversations(biz.id)).filter((c) => c.unread).length;
+  const unread = await countUnreadConversations(biz.id);
 
   return (
     <div className="light min-h-screen bg-[#a9b0bb] md:px-8 md:py-8">

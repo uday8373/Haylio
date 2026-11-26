@@ -86,10 +86,14 @@ export const FORWARD_MINUTES_LIMIT = 30;
 
 /** Minutes of answered forwarded calls in the current calendar month. */
 export async function forwardMinutesUsed(businessId: string): Promise<number> {
+  return forwardMinutesFrom(await listEngagements(businessId));
+}
+
+/** Forwarded talk-time this calendar month, from engagements already loaded. */
+export function forwardMinutesFrom(engs: Engagement[]): number {
   const monthStart = new Date();
   monthStart.setDate(1);
   monthStart.setHours(0, 0, 0, 0);
-  const engs = await listEngagements(businessId);
   const seconds = engs
     .filter((e) => e.callAt >= monthStart.getTime() && e.callDuration)
     .reduce((sum, e) => sum + (e.callDuration ?? 0), 0);

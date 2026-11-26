@@ -270,6 +270,18 @@ export async function getBusiness(id: string): Promise<Business | undefined> {
   return mem().businesses.get(id);
 }
 
+/** Number of unread conversations — fetches ids only, not message bodies. */
+export async function countUnreadConversations(businessId: string): Promise<number> {
+  if (supabaseEnabled) {
+    const rows = await sbSelect<{ id: string }>(
+      "conversations",
+      `business_id=eq.${encodeURIComponent(businessId)}&unread=eq.true&select=id`
+    );
+    return rows.length;
+  }
+  return [...mem().conversations.values()].filter((c) => c.businessId === businessId && c.unread).length;
+}
+
 export async function getBusinessByHandle(handle: string): Promise<Business | undefined> {
   const h = handle.toLowerCase();
   if (supabaseEnabled) {
@@ -374,13 +386,21 @@ export async function createSession(
 export async function getSessionActor(token: string | undefined): Promise<SessionActor | undefined> {
   if (!token) return undefined;
   if (supabaseEnabled) {
-    const rows = await sbSelect<Record<string, unknown>>(
-      "sessions",
-      `token=eq.${encodeURIComponent(token)}&select=*&limit=1`
-    );
+    const t = encodeURIComponent(token);
+    // One round trip: the session row with its business embedded (sessions.business_id
+    // references businesses.id). Falls back to two queries if embedding is unavailable.
+    let rows: Record<string, unknown>[];
+    let embedded = true;
+    try {
+      rows = await sbSelect<Record<string, unknown>>("sessions", `token=eq.${t}&select=*,business:businesses(*)&limit=1`);
+    } catch {
+      embedded = false;
+      rows = await sbSelect<Record<string, unknown>>("sessions", `token=eq.${t}&select=*&limit=1`);
+    }
     const r = rows[0];
     if (!r) return undefined;
-    const business = await getBusiness(String(r.business_id));
+    const bizRow = embedded ? (r.business as BizRow | null | undefined) : undefined;
+    const business = bizRow ? rowToBiz(bizRow) : await getBusiness(String(r.business_id));
     if (!business) return undefined;
     const memberId = (r.member_id as string) || undefined;
     const role: TeamRole = r.role === "member" ? "member" : "admin";

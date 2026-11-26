@@ -3,18 +3,19 @@
 import { useEffect, useState } from "react";
 import { LightbulbIcon } from "@/components/icons";
 
-export default function SharePanel() {
-  const [handle, setHandle] = useState("");
+export default function SharePanel({ initialHandle }: { initialHandle?: string }) {
+  const [handle, setHandle] = useState(initialHandle ?? "");
   const [origin, setOrigin] = useState("");
   const [copied, setCopied] = useState("");
 
   useEffect(() => {
     setOrigin(window.location.origin);
+    if (initialHandle) return; // already loaded on the server
     fetch("/api/business").then(async (r) => {
       const b = await r.json();
       setHandle(b.handle);
     });
-  }, []);
+  }, [initialHandle]);
 
   const url = origin && handle ? `${origin}/b/${handle}` : "";
   const embed = url

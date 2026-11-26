@@ -21,14 +21,15 @@ interface BizState {
   widget: WidgetConfig;
 }
 
-export default function WidgetSections() {
-  const [biz, setBiz] = useState<BizState | null>(null);
+export default function WidgetSections({ initial }: { initial?: BizState }) {
+  const [biz, setBiz] = useState<BizState | null>(initial ?? null);
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
+    if (initial) return; // already loaded on the server
     fetch("/api/business").then(async (r) => setBiz(await r.json()));
-  }, []);
+  }, [initial]);
 
   async function save() {
     if (!biz) return;

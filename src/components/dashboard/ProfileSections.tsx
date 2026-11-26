@@ -75,15 +75,16 @@ function ImageUrlField({
   );
 }
 
-export default function ProfileSections() {
-  const [p, setP] = useState<ProfileState | null>(null);
+export default function ProfileSections({ initial }: { initial?: ProfileState }) {
+  const [p, setP] = useState<ProfileState | null>(initial ?? null);
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
+    if (initial) return; // already loaded on the server
     fetch("/api/business").then(async (r) => setP(await r.json()));
-  }, []);
+  }, [initial]);
 
   async function save() {
     if (!p) return;

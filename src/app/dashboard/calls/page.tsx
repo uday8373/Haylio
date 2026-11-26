@@ -7,7 +7,7 @@ import { NumberCard, SimulateCall } from "@/components/dashboard/CallsClient";
 import { WhatsAppPanel, type WhatsAppLogEntry } from "@/components/dashboard/WhatsAppClient";
 import { Tabs } from "@/components/dashboard/Tabs";
 import { CallLog, type CallLogEntry } from "@/components/dashboard/CallLog";
-import { FORWARD_MINUTES_LIMIT, forwardMinutesUsed } from "@/lib/engagement";
+import { FORWARD_MINUTES_LIMIT, forwardMinutesFrom } from "@/lib/engagement";
 import { WHATSAPP_SANDBOX_NUMBER, WHATSAPP_SANDBOX_JOIN_HINT, isUsingSandbox } from "@/lib/whatsapp";
 import { billingEnabled } from "@/lib/billing";
 import type { SmsVerificationStatus } from "@/lib/types";
@@ -16,11 +16,13 @@ export const dynamic = "force-dynamic";
 
 export default async function CallsPage() {
   const biz = (await currentBusiness())!;
-  const vn = await getNumberByBusiness(biz.id);
-  const engagements = await listEngagements(biz.id);
-  const whatsAppMessages = await listWhatsAppMessages(biz.id);
-  const minutesUsed = vn ? await forwardMinutesUsed(biz.id) : 0;
-  const verification = await getSmsVerification(biz.id);
+  const [vn, engagements, whatsAppMessages, verification] = await Promise.all([
+    getNumberByBusiness(biz.id),
+    listEngagements(biz.id),
+    listWhatsAppMessages(biz.id),
+    getSmsVerification(biz.id),
+  ]);
+  const minutesUsed = vn ? forwardMinutesFrom(engagements) : 0;
   const verificationStatus: SmsVerificationStatus = verification?.status ?? "not_submitted";
   const paywall = billingEnabled && biz.planStatus !== "active";
 

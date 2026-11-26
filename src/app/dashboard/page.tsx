@@ -19,9 +19,11 @@ export const dynamic = "force-dynamic";
 
 export default async function Overview() {
   const biz = (await currentBusiness())!;
-  const convos = await listConversations(biz.id);
-  const vn = await getNumberByBusiness(biz.id);
-  const verification = await getSmsVerification(biz.id);
+  const [convos, vn, verification] = await Promise.all([
+    listConversations(biz.id),
+    getNumberByBusiness(biz.id),
+    getSmsVerification(biz.id),
+  ]);
   const verificationStatus: SmsVerificationStatus = verification?.status ?? "not_submitted";
 
   // ---- Enquiry tracker: all createdAt timestamps (aggregated client-side per range) ----
