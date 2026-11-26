@@ -432,3 +432,94 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ---------- Landing page (src/app/page.tsx) ---------- */
+
+.lp {
+  --paper: #f3f4f6;
+  --ink: #131a2a;
+  --muted: #5b6475;
+  --line: #dce0e7;
+  --signal: #e8552f;
+  --signal-ink: #b93d1d;
+  --safe: #1f8a5b;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+.lp ::selection { background: rgba(232, 85, 47, 0.22); color: var(--ink); }
+.lp-display {
+  font-family: "Bricolage Grotesque", "Inter", ui-sans-serif, sans-serif;
+  font-optical-sizing: auto;
+  letter-spacing: -0.025em;
+}
+.lp a:focus-visible,
+.lp button:focus-visible,
+.lp summary:focus-visible,
+.lp input:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 3px;
+  border-radius: 10px;
+}
+.lp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 999px;
+  padding: 0.8rem 1.35rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+.lp-btn-primary { background: var(--signal); color: #fff; }
+.lp-btn-primary:hover { background: var(--signal-ink); }
+.lp-btn-ghost { background: #fff; color: var(--ink); border: 1px solid var(--line); }
+.lp-btn-ghost:hover { border-color: #aeb5c2; }
+
+.lp-switch { display: inline-flex; padding: 4px; border-radius: 999px; background: #e3e6eb; }
+.lp-switch button {
+  padding: 0.5rem 1rem;
+  border-radius: 999px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--muted);
+  transition: background-color 0.25s ease, color 0.25s ease, box-shadow 0.25s ease;
+}
+.lp-switch button[aria-pressed="true"] {
+  background: #fff;
+  color: var(--ink);
+  box-shadow: 0 1px 2px rgba(19, 26, 42, 0.14);
+}
+
+.lp-feed { transition: background-color 0.45s ease, color 0.45s ease, border-color 0.45s ease; }
+.lp-feed-item { animation: lp-item 0.45s cubic-bezier(0.22, 1, 0.36, 1) both; }
+@keyframes lp-item {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+.lp-strike { position: relative; display: inline-block; }
+.lp-strike::after {
+  content: "";
+  position: absolute;
+  left: -2px;
+  right: -2px;
+  top: 52%;
+  height: 2px;
+  background: var(--signal);
+  transform-origin: left;
+  animation: lp-strike 0.5s 0.15s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes lp-strike {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+.lp-faq summary { list-style: none; cursor: pointer; }
+.lp-faq summary::-webkit-details-marker { display: none; }
+.lp-faq-mark { transition: transform 0.2s ease; }
+.lp-faq details[open] .lp-faq-mark { transform: rotate(45deg); }
+
+@media (prefers-reduced-motion: reduce) {
+  .lp *, .lp *::after { animation: none !important; transition: none !important; }
+}
